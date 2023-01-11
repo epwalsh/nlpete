@@ -57,13 +57,47 @@ class GPTConfig:
     Vocabulary size of the model.
     """
 
+    eos_token_id: int = 50256
+    """
+    The ID of the end-of-sentence special token.
+    """
+
+    pad_token_id: int = 50256
+    """
+    The ID of the token to use for padding. Defaults to the ID of the EOS token.
+    """
+
     device: Optional[str] = None
     """
     The torch device to use, e.g. "cpu" or "cuda:0".
     """
 
     @classmethod
-    def from_huggingface(cls, config) -> "GPTConfig":
+    def from_pretrained(cls, pretrained_model_name: str) -> "GPTConfig":
+        """
+        Initialize a :class:`GPTConfig` from a pretrained GPT model on HuggingFace.
+
+        Example
+        -------
+
+        .. testcode::
+
+            from mini_gpt import GPTConfig
+
+            GPTConfig.from_pretrained("gpt2")
+
+        """
+        import json
+
+        from cached_path import cached_path
+
+        cfg_path = cached_path(f"hf://{pretrained_model_name}/config.json")
+        with open(cfg_path, "r") as cfg_f:
+            config = json.load(cfg_f)
+        return cls.from_huggingface_config(config)
+
+    @classmethod
+    def from_huggingface_config(cls, config) -> "GPTConfig":
         """
         Initialize a :class:`GPTConfig` from a HuggingFace transformers
         :class:`~transformers.GPT2Config`.
@@ -76,16 +110,21 @@ class GPTConfig:
             from mini_gpt import GPTConfig
             from transformers import AutoConfig
 
-            GPTConfig.from_huggingface(AutoConfig.from_pretrained("gpt2"))
+            GPTConfig.from_huggingface_config(AutoConfig.from_pretrained("gpt2"))
+
         """
+        if not isinstance(config, dict):
+            config = config.to_dict()
         return cls(
-            d_model=config.hidden_size,
-            n_heads=config.n_head,
-            n_layers=config.n_layer,
+            d_model=config["n_embd"],
+            n_heads=config["n_head"],
+            n_layers=config["n_layer"],
             mlp_ratio=4,
-            attention_dropout=config.attn_pdrop,
-            residual_dropout=config.resid_pdrop,
-            embedding_dropout=config.embd_pdrop,
-            max_sequence_length=config.n_positions,
-            vocab_size=config.vocab_size,
+            attention_dropout=config["attn_pdrop"],
+            residual_dropout=config["resid_pdrop"],
+            embedding_dropout=config["embd_pdrop"],
+            max_sequence_length=config["n_positions"],
+            vocab_size=config["vocab_size"],
+            eos_token_id=config["eos_token_id"],
+            pad_token_id=config["eos_token_id"],
         )

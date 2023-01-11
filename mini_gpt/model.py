@@ -165,7 +165,40 @@ class GPT(nn.Module):
 
         return cast(torch.FloatTensor, logits)
 
-    def load_huggingface_state_dict(self, state_dict: dict[str, torch.Tensor]):
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name: str, cfg: Optional[GPTConfig] = None) -> "GPT":
+        """
+        Initialize a GPT model from a pretrained model on HuggingFace.
+
+        Example
+        -------
+
+        .. testcode::
+
+            from mini_gpt import GPT
+
+            GPT.from_pretrained("gpt2")
+
+        """
+        if cfg is None:
+            cfg = GPTConfig.from_pretrained(pretrained_model_name)
+        model = cls(cfg)
+        model.load_pretrained_weights(pretrained_model_name)
+        return model
+
+    def load_pretrained_weights(self, pretrained_model_name: str) -> None:
+        """
+        Load pretrained weights from a HuggingFace GPT model.
+        """
+        from cached_path import cached_path
+
+        weights_path = cached_path(f"hf://{pretrained_model_name}/pytorch_model.bin")
+        with open(weights_path, "rb") as f:
+            state_dict = torch.load(f, map_location=self.cfg.device or "cpu")
+
+        self.load_huggingface_state_dict(state_dict)
+
+    def load_huggingface_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
         """
         Load a state dict from the corresponding HuggingFace state dict.
 
@@ -179,6 +212,7 @@ class GPT(nn.Module):
 
             gpt2 = GPT(GPTConfig())
             gpt2.load_huggingface_state_dict(AutoModelForCausalLM.from_pretrained("gpt2").state_dict())
+
         """
 
         def map_key(k: str) -> str:
