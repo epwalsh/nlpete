@@ -17,4 +17,4 @@ def test_huggingface_compatibility():
     with torch.inference_mode():
         hf_outputs = hf_gpt2(**inputs)
         outputs = gpt2(**inputs)
-    torch.testing.assert_close(outputs, hf_outputs.logits)
+    torch.testing.assert_close(outputs.logits, hf_outputs.logits)

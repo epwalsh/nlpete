@@ -1,5 +1,5 @@
 import math
-from typing import Optional, cast
+from typing import NamedTuple, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -99,6 +99,14 @@ class GPTBlock(nn.Module):
         return x
 
 
+class GPTOutput(NamedTuple):
+    logits: torch.FloatTensor
+    """
+    A tensor of shape `(batch_size, vocab_size)` representing the log probabilities
+    for the next token *before* normalization via (log) softmax.
+    """
+
+
 class GPT(nn.Module):
     def __init__(self, config: GPTConfig):
         super().__init__()
@@ -116,9 +124,7 @@ class GPT(nn.Module):
         self.transformer.update({"ln_f": nn.LayerNorm(config.d_model, device=config.device)})
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
-    def forward(
-        self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None
-    ) -> torch.FloatTensor:
+    def forward(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None) -> GPTOutput:
         """
         :param input_ids: A tensor of shape `(batch_size, seq_len)`.
         :param attention_mask: A tensor of shape `(batch_size, seq_len)` that indicates
@@ -168,7 +174,7 @@ class GPT(nn.Module):
         # shape: (batch_size, seq_len, vocab_size)
         logits = self.lm_head(x)  # type: ignore
 
-        return cast(torch.FloatTensor, logits)
+        return GPTOutput(logits=cast(torch.FloatTensor, logits))
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name: str, config: Optional[GPTConfig] = None) -> "GPT":
