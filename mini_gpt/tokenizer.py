@@ -20,15 +20,15 @@ class GPTTokenizer:
     from `transformers`.
     """
 
-    def __init__(self, cfg: GPTConfig, base_tokenizer: TokenizerBase, enable_truncation: bool = True):
-        self.cfg = cfg
+    def __init__(self, config: GPTConfig, base_tokenizer: TokenizerBase, enable_truncation: bool = True):
+        self.config = config
         self.base_tokenizer = base_tokenizer
         if enable_truncation:
-            self.base_tokenizer.enable_truncation(self.cfg.max_sequence_length, direction="left")
+            self.base_tokenizer.enable_truncation(self.config.max_sequence_length, direction="left")
 
     @classmethod
     def from_pretrained(
-        cls, pretrained_model_name: str, cfg: Optional[GPTConfig] = None, **kwargs
+        cls, pretrained_model_name: str, config: Optional[GPTConfig] = None, **kwargs
     ) -> "GPTTokenizer":
         """
         Initialize a :class:`GPTTokenizer` from a pretrained GPT model on HuggingFace.
@@ -47,10 +47,10 @@ class GPTTokenizer:
 
         path = cached_path(f"hf://{pretrained_model_name}/tokenizer.json")
         base_tokenizer = TokenizerBase.from_file(str(path))
-        if cfg is None:
-            cfg = GPTConfig.from_pretrained(pretrained_model_name)
+        if config is None:
+            config = GPTConfig.from_pretrained(pretrained_model_name)
 
-        return cls(cfg, base_tokenizer, **kwargs)
+        return cls(config, base_tokenizer, **kwargs)
 
     def __call__(self, inputs: list[str], pad_left: bool = True, device: Optional[str] = None) -> TokenizerOutput:
         """
@@ -67,7 +67,7 @@ class GPTTokenizer:
                 F.pad(
                     torch.tensor(e.ids, dtype=torch.long, device=device),
                     pad_shape,
-                    value=self.cfg.pad_token_id,
+                    value=self.config.pad_token_id,
                 )
             )
             all_attention_mask.append(

@@ -91,9 +91,9 @@ class GPTConfig:
 
         from cached_path import cached_path
 
-        cfg_path = cached_path(f"hf://{pretrained_model_name}/config.json")
-        with open(cfg_path, "r") as cfg_f:
-            config = json.load(cfg_f)
+        config_path = cached_path(f"hf://{pretrained_model_name}/config.json")
+        with open(config_path, "r") as config_f:
+            config = json.load(config_f)
         return cls.from_huggingface_config(config)
 
     @classmethod

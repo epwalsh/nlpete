@@ -11,25 +11,25 @@ __all__ = ["CausalSelfAttention", "NewGELU", "GPTMLP", "GPTBlock", "GPT"]
 
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, cfg: GPTConfig, device: Optional[str] = None):
+    def __init__(self, config: GPTConfig, device: Optional[str] = None):
         super().__init__()
-        assert cfg.d_model % cfg.n_heads == 0
+        assert config.d_model % config.n_heads == 0
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(cfg.d_model, 3 * cfg.d_model, device=device)
+        self.c_attn = nn.Linear(config.d_model, 3 * config.d_model, device=device)
         # output projection
-        self.c_proj = nn.Linear(cfg.d_model, cfg.d_model, device=device)
+        self.c_proj = nn.Linear(config.d_model, config.d_model, device=device)
         # regularization
-        self.attn_dropout = nn.Dropout(cfg.attention_dropout)
-        self.resid_dropout = nn.Dropout(cfg.residual_dropout)
+        self.attn_dropout = nn.Dropout(config.attention_dropout)
+        self.resid_dropout = nn.Dropout(config.residual_dropout)
         # causal mask to ensure that attention is only applied to the left in the input sequence
         self.register_buffer(
             "bias",
-            torch.tril(torch.ones(cfg.max_sequence_length, cfg.max_sequence_length, device=device)).view(
-                1, 1, cfg.max_sequence_length, cfg.max_sequence_length
+            torch.tril(torch.ones(config.max_sequence_length, config.max_sequence_length, device=device)).view(
+                1, 1, config.max_sequence_length, config.max_sequence_length
             ),
         )
-        self.n_heads = cfg.n_heads
-        self.d_model = cfg.d_model
+        self.n_heads = config.n_heads
+        self.d_model = config.d_model
 
     def forward(
         self, x: torch.FloatTensor, attention_mask: Optional[torch.FloatTensor] = None
@@ -69,25 +69,25 @@ class NewGELU(nn.Module):
 
 
 class GPTMLP(nn.Module):
-    def __init__(self, cfg: GPTConfig, device: Optional[str] = None):
+    def __init__(self, config: GPTConfig, device: Optional[str] = None):
         super().__init__()
-        self.mlp_up = nn.Linear(cfg.d_model, cfg.mlp_ratio * cfg.d_model, device=device)
+        self.mlp_up = nn.Linear(config.d_model, config.mlp_ratio * config.d_model, device=device)
         self.mlp_act = NewGELU()
-        self.mlp_down = nn.Linear(cfg.mlp_ratio * cfg.d_model, cfg.d_model, device=device)
+        self.mlp_down = nn.Linear(config.mlp_ratio * config.d_model, config.d_model, device=device)
         self.mlp_down._is_residual = True  # type: ignore
-        self.dropout = nn.Dropout(cfg.residual_dropout)
+        self.dropout = nn.Dropout(config.residual_dropout)
 
     def forward(self, x):
         return self.dropout(self.mlp_down(self.mlp_act(self.mlp_up(x))))
 
 
 class GPTBlock(nn.Module):
-    def __init__(self, cfg: GPTConfig, device: Optional[str] = None):
+    def __init__(self, config: GPTConfig, device: Optional[str] = None):
         super().__init__()
-        self.ln_1 = nn.LayerNorm(cfg.d_model, device=device)
-        self.attn = CausalSelfAttention(cfg, device=device)
-        self.ln_2 = nn.LayerNorm(cfg.d_model, device=device)
-        self.mlp = GPTMLP(cfg, device=device)
+        self.ln_1 = nn.LayerNorm(config.d_model, device=device)
+        self.attn = CausalSelfAttention(config, device=device)
+        self.ln_2 = nn.LayerNorm(config.d_model, device=device)
+        self.mlp = GPTMLP(config, device=device)
 
     def forward(
         self,
@@ -100,17 +100,21 @@ class GPTBlock(nn.Module):
 
 
 class GPT(nn.Module):
-    def __init__(self, cfg: GPTConfig):
+    def __init__(self, config: GPTConfig):
         super().__init__()
-        self.cfg = cfg
-        self.transformer = nn.ModuleDict({"wte": nn.Embedding(cfg.vocab_size, cfg.d_model, device=cfg.device)})
-        self.transformer.update({"wpe": nn.Embedding(cfg.max_sequence_length, cfg.d_model, device=cfg.device)})
-        self.transformer.update({"emb_drop": nn.Dropout(cfg.embedding_dropout)})
-        self.transformer.update(
-            {"blocks": nn.ModuleList([GPTBlock(cfg, device=cfg.device) for _ in range(cfg.n_layers)])}
+        self.config = config
+        self.transformer = nn.ModuleDict(
+            {"wte": nn.Embedding(config.vocab_size, config.d_model, device=config.device)}
         )
-        self.transformer.update({"ln_f": nn.LayerNorm(cfg.d_model, device=cfg.device)})
-        self.lm_head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
+        self.transformer.update(
+            {"wpe": nn.Embedding(config.max_sequence_length, config.d_model, device=config.device)}
+        )
+        self.transformer.update({"emb_drop": nn.Dropout(config.embedding_dropout)})
+        self.transformer.update(
+            {"blocks": nn.ModuleList([GPTBlock(config, device=config.device) for _ in range(config.n_layers)])}
+        )
+        self.transformer.update({"ln_f": nn.LayerNorm(config.d_model, device=config.device)})
+        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
     def forward(
         self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None
@@ -126,9 +130,10 @@ class GPT(nn.Module):
             library.
         """
         batch_size, seq_len = input_ids.size()
-        assert (
-            seq_len <= self.cfg.max_sequence_length
-        ), f"Cannot forward input with seq_len={seq_len}, this model only supports seq_len<={self.cfg.max_sequence_length}"
+        assert seq_len <= self.config.max_sequence_length, (
+            f"Cannot forward input with seq_len={seq_len}, "
+            f"this model only supports seq_len<={self.config.max_sequence_length}"
+        )
 
         # Get embeddings of input.
         # shape: (batch_size, seq_len, d_model)
@@ -166,7 +171,7 @@ class GPT(nn.Module):
         return cast(torch.FloatTensor, logits)
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name: str, cfg: Optional[GPTConfig] = None) -> "GPT":
+    def from_pretrained(cls, pretrained_model_name: str, config: Optional[GPTConfig] = None) -> "GPT":
         """
         Initialize a GPT model from a pretrained model on HuggingFace.
 
@@ -180,9 +185,9 @@ class GPT(nn.Module):
             GPT.from_pretrained("gpt2")
 
         """
-        if cfg is None:
-            cfg = GPTConfig.from_pretrained(pretrained_model_name)
-        model = cls(cfg)
+        if config is None:
+            config = GPTConfig.from_pretrained(pretrained_model_name)
+        model = cls(config)
         model.load_pretrained_weights(pretrained_model_name)
         return model
 
@@ -194,7 +199,7 @@ class GPT(nn.Module):
 
         weights_path = cached_path(f"hf://{pretrained_model_name}/pytorch_model.bin")
         with open(weights_path, "rb") as f:
-            state_dict = torch.load(f, map_location=self.cfg.device or "cpu")
+            state_dict = torch.load(f, map_location=self.config.device or "cpu")
 
         self.load_huggingface_state_dict(state_dict)
 
