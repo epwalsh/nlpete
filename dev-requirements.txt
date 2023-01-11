@@ -40,3 +40,6 @@ sphinx-autodoc-typehints
 
 # For parsing and comparing version numbers.
 packaging
+
+# For correctness and compatibility checks.
+transformers
