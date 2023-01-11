@@ -71,14 +71,14 @@ class NewGELU(nn.Module):
 class GPTMLP(nn.Module):
     def __init__(self, config: GPTConfig, device: Optional[str] = None):
         super().__init__()
-        self.mlp_up = nn.Linear(config.d_model, config.mlp_ratio * config.d_model, device=device)
-        self.mlp_act = NewGELU()
-        self.mlp_down = nn.Linear(config.mlp_ratio * config.d_model, config.d_model, device=device)
-        self.mlp_down._is_residual = True  # type: ignore
+        self.c_fc = nn.Linear(config.d_model, config.mlp_ratio * config.d_model, device=device)
+        self.act = NewGELU()
+        self.c_proj = nn.Linear(config.mlp_ratio * config.d_model, config.d_model, device=device)
+        self.c_proj._is_residual = True  # type: ignore
         self.dropout = nn.Dropout(config.residual_dropout)
 
     def forward(self, x):
-        return self.dropout(self.mlp_down(self.mlp_act(self.mlp_up(x))))
+        return self.dropout(self.c_proj(self.act(self.c_fc(x))))
 
 
 class GPTBlock(nn.Module):
@@ -223,16 +223,6 @@ class GPT(nn.Module):
         def map_key(k: str) -> str:
             if k.startswith("transformer.h."):
                 k = k.replace("transformer.h.", "transformer.blocks.")
-
-            # MLP.
-            if k.endswith(".mlp.c_fc.weight"):
-                k = k.replace(".mlp.c_fc.weight", ".mlp.mlp_up.weight")
-            elif k.endswith(".mlp.c_fc.bias"):
-                k = k.replace(".mlp.c_fc.bias", ".mlp.mlp_up.bias")
-            elif k.endswith(".mlp.c_proj.weight"):
-                k = k.replace(".mlp.c_proj.weight", ".mlp.mlp_down.weight")
-            elif k.endswith(".mlp.c_proj.bias"):
-                k = k.replace(".mlp.c_proj.bias", ".mlp.mlp_down.bias")
             return k
 
         def map_val(k: str, v: torch.Tensor) -> torch.Tensor:
