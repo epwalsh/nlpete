@@ -47,12 +47,6 @@ class GPTConfig:
     The dropout probability for embeddings.
     """
 
-    embedding_fraction: float = 1.0
-    """
-    [CogView](https://arxiv.org/abs/2105.13290) and [GLM-130B](https://arxiv.org/abs/2210.02414)
-    both report this helping with stabilizing training
-    """
-
     max_sequence_length: int = 1024
     """
     The maximum input sequence length supported by the model.
@@ -92,7 +86,6 @@ class GPTConfig:
             attention_dropout=config.attn_pdrop,
             residual_dropout=config.resid_pdrop,
             embedding_dropout=config.embd_pdrop,
-            embedding_fraction=1.0,
             max_sequence_length=config.n_positions,
             vocab_size=config.vocab_size,
         )
