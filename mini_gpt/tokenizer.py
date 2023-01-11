@@ -77,7 +77,6 @@ class GPTTokenizer:
                     value=0.0,
                 )
             )
-        print(all_attention_mask)
         input_ids = cast(torch.LongTensor, torch.stack(all_input_ids))
         attention_mask = cast(torch.FloatTensor, torch.stack(all_attention_mask))
         return {"input_ids": input_ids, "attention_mask": attention_mask}
