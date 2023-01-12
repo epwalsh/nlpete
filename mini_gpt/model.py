@@ -194,8 +194,8 @@ class GPT(nn.Module):
         """
         Initialize a GPT model from a pretrained model on HuggingFace.
 
-        Example
-        -------
+        Examples
+        --------
 
         .. testcode::
 
@@ -226,8 +226,8 @@ class GPT(nn.Module):
         """
         Load a state dict from the corresponding HuggingFace state dict.
 
-        Example
-        -------
+        Examples
+        --------
 
         .. testcode::
 
@@ -273,6 +273,42 @@ class GPT(nn.Module):
         :param attention_mask: A tensor of shape `(batch_size, seq_len)`, the same
             as for the forward method.
         :param kwargs: Key-word arguments that will be passed to :class:`BeamSearch`.
+
+        Examples
+        --------
+
+        .. testcode::
+
+            import torch
+            from mini_gpt import GPT, GPTTokenizer
+            from mini_gpt.beam_search import *
+
+            gpt2 = GPT.from_pretrained("gpt2")
+            tokenizer = GPTTokenizer.from_pretrained("gpt2")
+
+            torch.manual_seed(23086)
+
+            inputs = tokenizer(["Hello, I'm a language model,"])
+            output = gpt2.generate(
+                inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                max_steps=20,
+                beam_size=5,
+                sampler=GumbelSampler(0.7),
+                constraints=[RepeatedNGramBlockingConstraint(1)],
+            )
+            for generation in tokenizer.decode(output.token_ids[0]):
+                print("->", generation)
+
+        .. testoutput::
+
+            ->  a language model, something that I'm trying to express in my own words. "
+            It's
+            ->  in today's world. I'm a team member and the things that we have to do on our
+            ->  I know that language will be an open package. In a Haskell model you can do something like this
+            ->  show me how to use it. Show the main character's home address, and then I'll display
+            ->  because it's not a programming language. I'm in this anyway, kinda like IBM is my whole
+
         """
         from .beam_search import BeamSearch
 
