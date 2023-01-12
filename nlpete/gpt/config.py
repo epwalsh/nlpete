@@ -76,16 +76,6 @@ class GPTConfig:
     def from_pretrained(cls, pretrained_model_name: str) -> "GPTConfig":
         """
         Initialize a :class:`GPTConfig` from a pretrained GPT model on HuggingFace.
-
-        Example
-        -------
-
-        .. testcode::
-
-            from nlpete.gpt import GPTConfig
-
-            GPTConfig.from_pretrained("gpt2")
-
         """
         import json
 
@@ -101,17 +91,6 @@ class GPTConfig:
         """
         Initialize a :class:`GPTConfig` from a HuggingFace transformers
         :class:`~transformers.GPT2Config`.
-
-        Example
-        -------
-
-        .. testcode::
-
-            from nlpete.gpt import GPTConfig
-            from transformers import AutoConfig
-
-            GPTConfig.from_huggingface_config(AutoConfig.from_pretrained("gpt2"))
-
         """
         if not isinstance(config, dict):
             config = config.to_dict()

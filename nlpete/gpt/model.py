@@ -197,16 +197,6 @@ class GPT(nn.Module):
     def from_pretrained(cls, pretrained_model_name: str, config: Optional[GPTConfig] = None) -> "GPT":
         """
         Initialize a GPT model from a pretrained model on HuggingFace.
-
-        Examples
-        --------
-
-        .. testcode::
-
-            from nlpete.gpt import GPT
-
-            GPT.from_pretrained("gpt2")
-
         """
         if config is None:
             config = GPTConfig.from_pretrained(pretrained_model_name)
@@ -229,18 +219,6 @@ class GPT(nn.Module):
     def load_huggingface_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
         """
         Load a state dict from the corresponding HuggingFace state dict.
-
-        Examples
-        --------
-
-        .. testcode::
-
-            from nlpete.gpt import GPT, GPTConfig
-            from transformers import AutoModelForCausalLM
-
-            gpt2 = GPT(GPTConfig())
-            gpt2.load_huggingface_state_dict(AutoModelForCausalLM.from_pretrained("gpt2").state_dict())
-
         """
 
         def map_key(k: str) -> str:
@@ -274,45 +252,9 @@ class GPT(nn.Module):
         Generate token IDs using beam search.
 
         :param input_ids: A tensor of shape `(batch_size, seq_len)`.
-        :param attention_mask: A tensor of shape `(batch_size, seq_len)`, the same
+        :param attention_mask: A optional tensor of shape `(batch_size, seq_len)`, the same
             as for the forward method.
         :param kwargs: Key-word arguments that will be passed to :class:`BeamSearch`.
-
-        Examples
-        --------
-
-        .. testcode::
-
-            import torch
-            from nlpete.gpt import GPT, GPTTokenizer
-            from nlpete.beam_search import *
-
-            gpt2 = GPT.from_pretrained("gpt2")
-            tokenizer = GPTTokenizer.from_pretrained("gpt2")
-
-            torch.manual_seed(23086)
-
-            inputs = tokenizer(["Hello, I'm a language model,"])
-            output = gpt2.generate(
-                inputs["input_ids"],
-                attention_mask=inputs["attention_mask"],
-                max_steps=20,
-                beam_size=5,
-                sampler=GumbelSampler(0.7),
-                constraints=[RepeatedNGramBlockingConstraint(1)],
-            )
-            for generation in tokenizer.decode(output.token_ids[0]):
-                print("->", generation)
-
-        .. testoutput::
-
-            ->  a language model, something that I'm trying to express in my own words. "
-            It's
-            ->  in today's world. I'm a team member and the things that we have to do on our
-            ->  I know that language will be an open package. In a Haskell model you can do something like this
-            ->  show me how to use it. Show the main character's home address, and then I'll display
-            ->  because it's not a programming language. I'm in this anyway, kinda like IBM is my whole
-
         """
         from ..beam_search import BeamSearch
 

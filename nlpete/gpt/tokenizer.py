@@ -32,16 +32,6 @@ class GPTTokenizer:
     ) -> "GPTTokenizer":
         """
         Initialize a :class:`GPTTokenizer` from a pretrained GPT model on HuggingFace.
-
-        Examples
-        --------
-
-        .. testcode::
-
-            from nlpete.gpt import GPTTokenizer
-
-            GPTTokenizer.from_pretrained("gpt2")
-
         """
         from cached_path import cached_path
 

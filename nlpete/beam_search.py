@@ -1,6 +1,9 @@
 """
 This is a self-contained and flexible beam search implementation adapted from
 AllenNLP's beam search: https://github.com/allenai/allennlp/blob/main/allennlp/nn/beam_search.py
+
+See the `.generate()` method in `nlp/gpt/model.py` for an example of how integrate
+this into a model.
 """
 
 import copy
