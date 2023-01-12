@@ -16,7 +16,7 @@ on:
 
 env:
   # Change this to invalidate existing cache.
-  CACHE_PREFIX: v0
+  CACHE_PREFIX: v1
   PYTHONPATH: ./
 
 jobs:
@@ -98,7 +98,7 @@ jobs:
         if: always()
         run: |
           . .venv/bin/activate
-          pip uninstall -y mini-gpt
+          pip uninstall -y nlpete
 
   release:
     name: Release
