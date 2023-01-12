@@ -11,10 +11,10 @@ import torch.nn.functional as F
 
 from .config import GPTConfig
 
-__all__ = ["CausalSelfAttention", "NewGELU", "GPTMLP", "GPTBlock", "GPT"]
+__all__ = ["SelfAttention", "NewGELU", "GPTMLP", "GPTBlock", "GPT"]
 
 
-class CausalSelfAttention(nn.Module):
+class SelfAttention(nn.Module):
     def __init__(self, config: GPTConfig, device: Optional[str] = None):
         super().__init__()
         assert config.d_model % config.n_heads == 0
@@ -25,39 +25,68 @@ class CausalSelfAttention(nn.Module):
         # regularization
         self.attn_dropout = nn.Dropout(config.attention_dropout)
         self.resid_dropout = nn.Dropout(config.residual_dropout)
-        # causal mask to ensure that attention is only applied to the left in the input sequence
-        self.register_buffer(
-            "bias",
-            torch.tril(torch.ones(config.max_sequence_length, config.max_sequence_length, device=device)).view(
-                1, 1, config.max_sequence_length, config.max_sequence_length
-            ),
-        )
         self.n_heads = config.n_heads
         self.d_model = config.d_model
 
     def forward(
-        self, x: torch.FloatTensor, attention_mask: Optional[torch.FloatTensor] = None
+        self,
+        x: torch.FloatTensor,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        attention_bias: Optional[torch.Tensor] = None,
     ) -> torch.FloatTensor:
+        """
+        :param x: A tensor of shape `(batch_size, seq_len, d_model)`.
+        :param attention_mask: A tensor of shape `(batch_size, seq_len)` or
+            `(batch_size, 1, 1, seq_len)` that's added to the attention scores
+            before the softmax. Use large negative values to mask out padding.
+        :param attention_bias: A tensor of shape `(batch_size, 1, seq_len, seq_len)`,
+            `(1, 1, seq_len, seq_len)`, or `(seq_len, seq_len)`. This is used
+            to introduce causal or other biases. A `1` at `attention_bias[:, :, i, j]`
+            indicates that the i-th element in the sequence is allowed to attend to the j-th
+            element in the sequence.
+        """
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (d_model)
 
-        # calculate query, key, values for all heads in batch and move head forward to be the batch dim
+        # Calculate query, key, values for all heads in batch.
+        # shape (all): (B, T, C)
         q, k, v = self.c_attn(x).split(self.d_model, dim=2)
-        k = k.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)  # (B, nh, T, hs)
-        q = q.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)  # (B, nh, T, hs)
-        v = v.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)  # (B, nh, T, hs)
 
-        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+        # Move head forward to be next to the batch dim.
+        # shape (all): (B, nh, T, hs)
+        k = k.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
+        q = q.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
+        v = v.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
+
+        # Self-attention: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))  # type: ignore
+
+        # Apply bias.
+        if attention_bias is not None:
+            if attention_bias.shape == 2:
+                attention_bias = attention_bias.unsqueeze(0).unsqueeze(0)
+            assert len(attention_bias.shape) == 4, "attention_bias has the wrong shape"
+            att = att.masked_fill(attention_bias[:, :, :T, :T] == 0, float("-inf"))  # type: ignore
+
+        # Apply (padding) mask.
         if attention_mask is not None:
+            # Make sure shape is (B, 1, 1, S)
+            if len(attention_mask.shape) == 2:  # type: ignore
+                attention_mask = attention_mask.unsqueeze(1).unsqueeze(1)  # type: ignore
             att = att + attention_mask
+
+        # Apply softmax and dropout.
         att = F.softmax(att, dim=-1)
         att = self.attn_dropout(att)
-        y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
 
-        # output projection
+        # Get head outputs.
+        y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+
+        # Re-assemble all head outputs side by side.
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
+
+        # Apply output projection.
         y = self.resid_dropout(self.c_proj(y))
+
         return y
 
 
@@ -89,7 +118,7 @@ class GPTBlock(nn.Module):
     def __init__(self, config: GPTConfig, device: Optional[str] = None):
         super().__init__()
         self.ln_1 = nn.LayerNorm(config.d_model, device=device)
-        self.attn = CausalSelfAttention(config, device=device)
+        self.attn = SelfAttention(config, device=device)
         self.ln_2 = nn.LayerNorm(config.d_model, device=device)
         self.mlp = GPTMLP(config, device=device)
 
@@ -97,8 +126,9 @@ class GPTBlock(nn.Module):
         self,
         x: torch.Tensor,
         attention_mask: Optional[torch.FloatTensor] = None,
+        attention_bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        x = x + self.attn(self.ln_1(x), attention_mask=attention_mask)
+        x = x + self.attn(self.ln_1(x), attention_mask=attention_mask, attention_bias=attention_bias)
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -140,8 +170,20 @@ class GPT(nn.Module):
         )
         self.transformer.update({"ln_f": nn.LayerNorm(config.d_model, device=config.device)})
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+        # causal mask to ensure that attention is only applied to the left in the input sequence
+        self.register_buffer(
+            "attention_bias",
+            torch.tril(
+                torch.ones(config.max_sequence_length, config.max_sequence_length, device=config.device)
+            ).view(1, 1, config.max_sequence_length, config.max_sequence_length),
+        )
 
-    def forward(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None) -> GPTOutput:
+    def forward(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        attention_bias: Optional[torch.Tensor] = None,
+    ) -> GPTOutput:
         """
         :param input_ids: A tensor of shape `(batch_size, seq_len)`.
         :param attention_mask: A tensor of shape `(batch_size, seq_len)` that indicates
@@ -151,6 +193,13 @@ class GPT(nn.Module):
 
             This has the same meaning as the `attention_mask` in HuggingFace's `transformers`
             library.
+        :param attention_bias: A tensor of shape `(batch_size, 1, seq_len, seq_len)`,
+            `(1, 1, seq_len, seq_len)`, or `(seq_len, seq_len)`. This is used
+            to introduce causal or other biases. A `1` at `attention_bias[:, :, i, j]`
+            indicates that the i-th element in the sequence is allowed to attend to the j-th
+            element in the sequence.
+
+            The default is causal, which corresponds to a lower-diagonal matrix of ones.
         """
         batch_size, seq_len = input_ids.size()
         assert seq_len <= self.config.max_sequence_length, (
@@ -178,10 +227,13 @@ class GPT(nn.Module):
             attention_mask = attention_mask.to(dtype=torch.float).view(batch_size, -1)[:, None, None, :]
             attention_mask = (1.0 - attention_mask) * torch.finfo(attention_mask.dtype).min
 
+        # Default to causal attention bias.
+        attention_bias = attention_bias or self.attention_bias  # type: ignore
+
         # Apply blocks one-by-one.
         for block in self.transformer.blocks:  # type: ignore
             # shape: (batch_size, seq_len, d_model)
-            x = block(x, attention_mask=attention_mask)
+            x = block(x, attention_mask=attention_mask, attention_bias=attention_bias)
 
         # Apply final layer norm.
         # shape: (batch_size, seq_len, d_model)
@@ -234,16 +286,20 @@ class GPT(nn.Module):
                 for s in {".attn.c_attn.weight", ".attn.c_proj.weight", ".mlp.c_fc.weight", ".mlp.c_proj.weight"}
             ):
                 return v.T
-            elif k.endswith(".attn.bias"):
-                return v.to(dtype=torch.float)
             return v
 
         state_dict = {
-            map_key(k): map_val(k, v) for k, v in state_dict.items() if not k.endswith(".attn.masked_bias")
+            map_key(k): map_val(k, v)
+            for k, v in state_dict.items()
+            if not (k.endswith(".attn.masked_bias") or k.endswith(".attn.bias"))
         }
         if "lm_head.weight" not in state_dict:
             state_dict["lm_head.weight"] = state_dict["transformer.wte.weight"]
-        self.load_state_dict(state_dict)
+        results = self.load_state_dict(state_dict, strict=False)
+        assert set(results.missing_keys) == {
+            "attention_bias"
+        }, f"missing keys in state dict: {results.missing_keys}"
+        assert len(results.unexpected_keys) == 0, f"unexpected keys in state dict: {results.unexpected_keys}"
 
     def generate(
         self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor], **kwargs
