@@ -240,7 +240,7 @@ class GPT(nn.Module):
         """
 
         def map_key(k: str) -> str:
-            if not k.startswith("transformer."):
+            if k != "lm_head.weight" and not k.startswith("transformer."):
                 k = "transformer." + k
             if k.startswith("transformer.h."):
                 k = k.replace("transformer.h.", "transformer.blocks.")
