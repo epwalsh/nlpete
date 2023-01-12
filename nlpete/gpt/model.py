@@ -245,62 +245,6 @@ class GPT(nn.Module):
 
         return GPTOutput(logits=cast(torch.FloatTensor, logits))
 
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name: str, config: Optional[GPTConfig] = None) -> "GPT":
-        """
-        Initialize a GPT model from a pretrained model on HuggingFace.
-        """
-        if config is None:
-            config = GPTConfig.from_pretrained(pretrained_model_name)
-        model = cls(config)
-        model.load_pretrained_weights(pretrained_model_name)
-        return model
-
-    def load_pretrained_weights(self, pretrained_model_name: str) -> None:
-        """
-        Load pretrained weights from a HuggingFace GPT model.
-        """
-        from cached_path import cached_path
-
-        weights_path = cached_path(f"hf://{pretrained_model_name}/pytorch_model.bin")
-        with open(weights_path, "rb") as f:
-            state_dict = torch.load(f, map_location=self.config.device or "cpu")
-
-        self.load_huggingface_state_dict(state_dict)
-
-    def load_huggingface_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
-        """
-        Load a state dict from the corresponding HuggingFace state dict.
-        """
-
-        def map_key(k: str) -> str:
-            if k != "lm_head.weight" and not k.startswith("transformer."):
-                k = "transformer." + k
-            if k.startswith("transformer.h."):
-                k = k.replace("transformer.h.", "transformer.blocks.")
-            return k
-
-        def map_val(k: str, v: torch.Tensor) -> torch.Tensor:
-            if any(
-                k.endswith(s)
-                for s in {".attn.c_attn.weight", ".attn.c_proj.weight", ".mlp.c_fc.weight", ".mlp.c_proj.weight"}
-            ):
-                return v.T
-            return v
-
-        state_dict = {
-            map_key(k): map_val(k, v)
-            for k, v in state_dict.items()
-            if not (k.endswith(".attn.masked_bias") or k.endswith(".attn.bias"))
-        }
-        if "lm_head.weight" not in state_dict:
-            state_dict["lm_head.weight"] = state_dict["transformer.wte.weight"]
-        results = self.load_state_dict(state_dict, strict=False)
-        assert set(results.missing_keys) == {
-            "attention_bias"
-        }, f"missing keys in state dict: {results.missing_keys}"
-        assert len(results.unexpected_keys) == 0, f"unexpected keys in state dict: {results.unexpected_keys}"
-
     def generate(
         self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor], **kwargs
     ) -> GPTGenerateOutput:
@@ -353,3 +297,133 @@ class GPT(nn.Module):
         return GPTGenerateOutput(
             token_ids=cast(torch.LongTensor, token_ids), scores=cast(torch.FloatTensor, scores)
         )
+
+    def configure_optimizer(
+        self,
+        learning_rate: Optional[float] = None,
+        weight_decay: float = 0.01,
+        **kwargs,
+    ) -> torch.optim.AdamW:
+        """
+        Get a suitable AdamW optimizer for training/fine-tuning.
+
+        :param learning_rate: The learning rate. If not specified, a default learning
+            rate will calculated according to the equation from the Scaling Laws paper
+            `0.003239 - 0.0001395 * math.log(N)`,
+            where `N` is the number of trainable parameters excluding embeddings.
+        :param weight_decay: The weight decay coefficient. This does not apply to
+            biases and layernorm/embedding weights, which will have a weight decay
+            coefficient of 0.
+        :param kwargs: Other keyword arguments passed to torch's `AdamW` optimizer.
+        """
+        # Separate out all parameters to those that will and won't experience regularizing weight decay.
+        decay = set()
+        no_decay = set()
+        all_params = {}
+        num_trainable_non_embedding_weights = 0
+        whitelist_weight_modules = (torch.nn.Linear,)
+        blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
+        for mn, m in self.named_modules():
+            for pn, p in m.named_parameters():
+                # NOTE: because named_modules and named_parameters are recursive
+                # we will see the same tensors p many many times, but doing it this way
+                # allows us to know which parent module any tensor p belongs to...
+                if not p.requires_grad:
+                    continue
+
+                fpn = f"{mn}.{pn}" if mn else pn
+                all_params[fpn] = p
+
+                if pn.endswith("bias"):
+                    # all biases will not be decayed
+                    no_decay.add(fpn)
+                elif pn.endswith("weight") and isinstance(m, whitelist_weight_modules):
+                    # weights of whitelist modules will be weight decayed
+                    decay.add(fpn)
+                elif pn.endswith("weight") and isinstance(m, blacklist_weight_modules):
+                    # weights of blacklist modules will NOT be weight decayed
+                    no_decay.add(fpn)
+
+                if fpn not in {"transformer.wte.weight", "transformer.wpe.weight"}:
+                    num_trainable_non_embedding_weights += p.numel()
+
+        # Validate that we've considered every parameter
+        inter_params = decay & no_decay
+        union_params = decay | no_decay
+        assert len(inter_params) == 0, f"parameters {inter_params} made it into both decay/no_decay sets!"
+        assert (
+            len(all_params.keys() - union_params) == 0
+        ), f"parameters {all_params.keys() - union_params} were not separated into either decay/no_decay set!"
+
+        # Create the pytorch optimizer groups.
+        optim_groups = [
+            {"params": [all_params[pn] for pn in sorted(list(decay))], "weight_decay": weight_decay},
+            {"params": [all_params[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
+        ]
+
+        if learning_rate is None:
+            learning_rate = 0.003239 - 0.0001395 * math.log(num_trainable_non_embedding_weights)
+
+        return torch.optim.AdamW(optim_groups, lr=learning_rate, **kwargs)
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name: str, config: Optional[GPTConfig] = None) -> "GPT":
+        """
+        Initialize a GPT model from a pretrained model on HuggingFace.
+        """
+        if config is None:
+            config = GPTConfig.from_pretrained(pretrained_model_name)
+        model = cls(config)
+        model.load_pretrained_weights(pretrained_model_name)
+        return model
+
+    def load_pretrained_weights(self, pretrained_model_name: str) -> None:
+        """
+        Load pretrained weights from a HuggingFace GPT model.
+        """
+        from cached_path import cached_path
+
+        weights_path = cached_path(f"hf://{pretrained_model_name}/pytorch_model.bin")
+        with open(weights_path, "rb") as f:
+            state_dict = torch.load(f, map_location=self.config.device or "cpu")
+
+        self.load_huggingface_state_dict(state_dict)
+
+    def load_huggingface_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
+        """
+        Load a state dict from the corresponding HuggingFace state dict.
+        """
+
+        def map_key(k: str) -> str:
+            if k != "lm_head.weight" and not k.startswith("transformer."):
+                k = "transformer." + k
+            if k.startswith("transformer.h."):
+                k = k.replace("transformer.h.", "transformer.blocks.")
+            return k
+
+        def map_val(k: str, v: torch.Tensor) -> torch.Tensor:
+            if any(
+                k.endswith(s)
+                for s in {".attn.c_attn.weight", ".attn.c_proj.weight", ".mlp.c_fc.weight", ".mlp.c_proj.weight"}
+            ):
+                return v.T
+            return v
+
+        state_dict = {
+            map_key(k): map_val(k, v)
+            for k, v in state_dict.items()
+            if not (
+                k.endswith(".attn.masked_bias")
+                or k.endswith(".attn.bias")
+                or k in {"score.weight", "classifier.weight", "classifier.bias"}
+            )
+        }
+
+        if "lm_head.weight" not in state_dict:
+            state_dict["lm_head.weight"] = state_dict["transformer.wte.weight"]
+
+        results = self.load_state_dict(state_dict, strict=False)
+        assert set(results.missing_keys) == {
+            "attention_bias"
+        }, f"missing keys in state dict: {results.missing_keys}"
+        assert len(results.unexpected_keys) == 0, f"unexpected keys in state dict: {results.unexpected_keys}"

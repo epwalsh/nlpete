@@ -31,7 +31,11 @@ jobs:
         task:
           - name: Test
             run: |
-              pytest -v --color=yes tests/
+              pytest -v --color=yes tests/*.py
+
+          - name: Test GPT
+            run: |
+              pytest -v --color=yes tests/gpt/
 
         include:
           - python: '3.9'

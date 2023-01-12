@@ -18,3 +18,7 @@ def test_huggingface_compatibility():
         hf_outputs = hf_gpt2(**inputs)
         outputs = gpt2(**inputs)
     torch.testing.assert_close(outputs.logits, hf_outputs.logits)
+
+
+def test_configure_optimizer():
+    GPT.from_pretrained("gpt2").configure_optimizer()
