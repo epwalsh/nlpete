@@ -1,23 +1,23 @@
 Installation
 ============
 
-**mini-gpt** supports Python >= 3.9.
+**nlpete** supports Python >= 3.9.
 
 ## Installing with `pip`
 
-**mini-gpt** is available [on PyPI](https://pypi.org/project/mini-gpt/). Just run
+**nlpete** is available [on PyPI](https://pypi.org/project/nlpete/). Just run
 
 ```bash
-pip install mini-gpt
+pip install nlpete
 ```
 
 ## Installing from source
 
-To install **mini-gpt** from source, first clone [the repository](https://github.com/epwalsh/mini-gpt):
+To install **nlpete** from source, first clone [the repository](https://github.com/epwalsh/nlpete):
 
 ```bash
-git clone https://github.com/epwalsh/mini-gpt.git
-cd mini-gpt
+git clone https://github.com/epwalsh/nlpete.git
+cd nlpete
 ```
 
 Then run

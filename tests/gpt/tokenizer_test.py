@@ -1,7 +1,7 @@
 import torch
 from transformers import AutoTokenizer
 
-from mini_gpt.tokenizer import GPTTokenizer
+from nlpete.gpt import GPTTokenizer
 
 
 def test_from_pretrained():

@@ -1,11 +1,13 @@
-# mini-gpt
+# NLPete
 
-A simple and fast PyTorch GPT implementation, inspired by [karpathy/minGPT](https://github.com/karpathy/minGPT/blob/master/mingpt/model.py) and [mosaic_gpt](https://github.com/mosaicml/examples/blob/main/llm/src/mosaic_gpt.py).
+Simple, self-contained, PyTorch NLP models.
 
 ## Quick start
 
+Python >= 3.9 is required.
+
 ```python
-from mini_gpt import *
+from nlpete.gpt import *
 
 # Initialize a GPT model and tokenizer from pretrained weights on HuggingFace:
 gpt2 = GPT.from_pretrained("gpt2")

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from mini_gpt.beam_search import (
+from nlpete.beam_search import (
     BeamSearch,
     GumbelSampler,
     LengthNormalizedSequenceLogProbabilityScorer,

@@ -33,12 +33,12 @@ class GPTTokenizer:
         """
         Initialize a :class:`GPTTokenizer` from a pretrained GPT model on HuggingFace.
 
-        Example
-        -------
+        Examples
+        --------
 
         .. testcode::
 
-            from mini_gpt import GPTTokenizer
+            from nlpete.gpt import GPTTokenizer
 
             GPTTokenizer.from_pretrained("gpt2")
 

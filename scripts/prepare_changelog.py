@@ -1,7 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from mini_gpt.version import VERSION
+from nlpete.version import VERSION
 
 
 def main():
@@ -27,7 +27,7 @@ def main():
     lines.insert(insert_index, "\n")
     lines.insert(
         insert_index + 1,
-        f"## [v{VERSION}](https://github.com/epwalsh/mini-gpt/releases/tag/v{VERSION}) - "
+        f"## [v{VERSION}](https://github.com/epwalsh/nlpete/releases/tag/v{VERSION}) - "
         f"{datetime.now().strftime('%Y-%m-%d')}\n",
     )
 

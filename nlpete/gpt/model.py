@@ -1,3 +1,7 @@
+"""
+Adapted from https://github.com/karpathy/minGPT/blob/master/mingpt/model.py
+"""
+
 import math
 from typing import NamedTuple, Optional, cast
 
@@ -199,7 +203,7 @@ class GPT(nn.Module):
 
         .. testcode::
 
-            from mini_gpt import GPT
+            from nlpete.gpt import GPT
 
             GPT.from_pretrained("gpt2")
 
@@ -231,7 +235,7 @@ class GPT(nn.Module):
 
         .. testcode::
 
-            from mini_gpt import GPT, GPTConfig
+            from nlpete.gpt import GPT, GPTConfig
             from transformers import AutoModelForCausalLM
 
             gpt2 = GPT(GPTConfig())
@@ -280,8 +284,8 @@ class GPT(nn.Module):
         .. testcode::
 
             import torch
-            from mini_gpt import GPT, GPTTokenizer
-            from mini_gpt.beam_search import *
+            from nlpete.gpt import GPT, GPTTokenizer
+            from nlpete.beam_search import *
 
             gpt2 = GPT.from_pretrained("gpt2")
             tokenizer = GPTTokenizer.from_pretrained("gpt2")
@@ -310,7 +314,7 @@ class GPT(nn.Module):
             ->  because it's not a programming language. I'm in this anyway, kinda like IBM is my whole
 
         """
-        from .beam_search import BeamSearch
+        from ..beam_search import BeamSearch
 
         beam_search = BeamSearch(self.config.eos_token_id, **kwargs)
         tokens_generated = 0

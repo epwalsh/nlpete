@@ -1,4 +1,4 @@
-from mini_gpt.config import GPTConfig
+from nlpete.gpt import GPTConfig
 
 
 def test_from_pretrained():

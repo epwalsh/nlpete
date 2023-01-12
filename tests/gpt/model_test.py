@@ -1,7 +1,7 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from mini_gpt import GPT, GPTConfig
+from nlpete.gpt import GPT, GPTConfig
 
 
 def test_huggingface_compatibility():

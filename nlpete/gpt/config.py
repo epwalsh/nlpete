@@ -82,7 +82,7 @@ class GPTConfig:
 
         .. testcode::
 
-            from mini_gpt import GPTConfig
+            from nlpete.gpt import GPTConfig
 
             GPTConfig.from_pretrained("gpt2")
 
@@ -107,7 +107,7 @@ class GPTConfig:
 
         .. testcode::
 
-            from mini_gpt import GPTConfig
+            from nlpete.gpt import GPTConfig
             from transformers import AutoConfig
 
             GPTConfig.from_huggingface_config(AutoConfig.from_pretrained("gpt2"))

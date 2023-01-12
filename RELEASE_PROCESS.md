@@ -2,7 +2,7 @@
 
 ## Steps
 
-1. Update the version in `mini_gpt/version.py`.
+1. Update the version in `nlpete/version.py`.
 
 3. Run the release script:
 
