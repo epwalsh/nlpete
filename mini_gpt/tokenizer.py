@@ -80,3 +80,10 @@ class GPTTokenizer:
         input_ids = cast(torch.LongTensor, torch.stack(all_input_ids))
         attention_mask = cast(torch.FloatTensor, torch.stack(all_attention_mask))
         return {"input_ids": input_ids, "attention_mask": attention_mask}
+
+    def decode(self, inputs: torch.LongTensor) -> list[str]:
+        """
+        Decode a batch of inputs.
+        """
+        assert len(inputs.shape) == 2, "decode expects a batched tensor"
+        return self.base_tokenizer.decode_batch([[i.item() for i in seq] for seq in inputs])

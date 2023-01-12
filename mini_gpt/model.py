@@ -102,8 +102,21 @@ class GPTBlock(nn.Module):
 class GPTOutput(NamedTuple):
     logits: torch.FloatTensor
     """
-    A tensor of shape `(batch_size, vocab_size)` representing the log probabilities
+    A tensor of shape `(batch_size, seq_len, vocab_size)` representing the log probabilities
     for the next token *before* normalization via (log) softmax.
+    """
+
+
+class GPTGenerateOutput(NamedTuple):
+    token_ids: torch.LongTensor
+    """
+    The generated token IDs, a tensor of shape `(batch_size, beam_size, max_steps)`.
+    These do *not* include the original input IDs.
+    """
+
+    scores: torch.FloatTensor
+    """
+    The scores of the generated sequences, a tensor of shape `(batch_size, beam_size)`.
     """
 
 
@@ -227,6 +240,8 @@ class GPT(nn.Module):
         """
 
         def map_key(k: str) -> str:
+            if not k.startswith("transformer."):
+                k = "transformer." + k
             if k.startswith("transformer.h."):
                 k = k.replace("transformer.h.", "transformer.blocks.")
             return k
@@ -244,4 +259,59 @@ class GPT(nn.Module):
         state_dict = {
             map_key(k): map_val(k, v) for k, v in state_dict.items() if not k.endswith(".attn.masked_bias")
         }
+        if "lm_head.weight" not in state_dict:
+            state_dict["lm_head.weight"] = state_dict["transformer.wte.weight"]
         self.load_state_dict(state_dict)
+
+    def generate(
+        self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor], **kwargs
+    ) -> GPTGenerateOutput:
+        """
+        Generate token IDs using beam search.
+
+        :param input_ids: A tensor of shape `(batch_size, seq_len)`.
+        :param attention_mask: A tensor of shape `(batch_size, seq_len)`, the same
+            as for the forward method.
+        :param kwargs: Key-word arguments that will be passed to :class:`BeamSearch`.
+        """
+        from .beam_search import BeamSearch
+
+        beam_search = BeamSearch(self.config.eos_token_id, **kwargs)
+        tokens_generated = 0
+
+        def step(
+            last_predictions: torch.Tensor, state: dict[str, torch.Tensor]
+        ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+            nonlocal tokens_generated
+
+            input_ids = state["input_ids"]
+            attention_mask = state.get("attention_mask")
+            group_size = input_ids.shape[0]
+
+            if tokens_generated > 0:
+                input_ids = torch.cat((input_ids, last_predictions.unsqueeze(1)), dim=-1)
+                if attention_mask is not None:
+                    attention_mask = torch.cat((attention_mask, attention_mask.new_ones((group_size, 1))), dim=-1)
+
+            tokens_generated += 1
+
+            output = self(input_ids, attention_mask=attention_mask)
+            log_probs = F.log_softmax(output.logits[:, -1, :], dim=-1)
+            state = {"input_ids": input_ids}
+            if attention_mask is not None:
+                state["attention_mask"] = attention_mask
+
+            return log_probs, state
+
+        with torch.inference_mode():
+            batch_size = input_ids.shape[0]
+            # This is arbitrary, we won't use this.
+            initial_preds = input_ids.new_zeros((batch_size,))
+            state: dict[str, torch.Tensor] = {"input_ids": input_ids}
+            if attention_mask is not None:
+                state["attention_mask"] = attention_mask
+            token_ids, scores = beam_search.search(initial_preds, state, step)
+
+        return GPTGenerateOutput(
+            token_ids=cast(torch.LongTensor, token_ids), scores=cast(torch.FloatTensor, scores)
+        )
