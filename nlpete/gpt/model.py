@@ -228,7 +228,7 @@ class GPT(nn.Module):
             attention_mask = (1.0 - attention_mask) * torch.finfo(attention_mask.dtype).min
 
         # Default to causal attention bias.
-        attention_bias = attention_bias or self.attention_bias  # type: ignore
+        attention_bias = attention_bias if attention_bias is not None else self.attention_bias  # type: ignore
 
         # Apply blocks one-by-one.
         for block in self.transformer.blocks:  # type: ignore
@@ -246,7 +246,11 @@ class GPT(nn.Module):
         return GPTOutput(logits=cast(torch.FloatTensor, logits))
 
     def generate(
-        self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor], **kwargs
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor],
+        attention_bias: Optional[torch.Tensor] = None,
+        **kwargs,
     ) -> GPTGenerateOutput:
         """
         Generate token IDs using beam search.
@@ -254,11 +258,29 @@ class GPT(nn.Module):
         :param input_ids: A tensor of shape `(batch_size, seq_len)`.
         :param attention_mask: A optional tensor of shape `(batch_size, seq_len)`, the same
             as for the forward method.
+        :param attention_bias: A tensor of shape
+            `(batch_size, 1, seq_len + tokens_to_generate, seq_len + tokens_to_generate)`,
+            the same as for the forward method except only one shape is excepted here.
         :param kwargs: Key-word arguments that will be passed to :class:`BeamSearch`.
         """
         from ..beam_search import BeamSearch
 
         beam_search = BeamSearch(self.config.eos_token_id, **kwargs)
+
+        # Validate inputs.
+        batch_size, seq_len = input_ids.shape
+        if attention_mask is not None:
+            assert attention_mask.shape == (batch_size, seq_len)
+        if attention_bias is not None:
+            assert len(attention_bias.shape) == 4
+            assert attention_bias.shape[:2] == (batch_size, 1)
+            assert (
+                seq_len + beam_search.max_steps
+                <= attention_bias.shape[2]
+                == attention_bias.shape[3]
+                <= self.config.max_sequence_length
+            )
+
         tokens_generated = 0
 
         def step(
@@ -268,6 +290,7 @@ class GPT(nn.Module):
 
             input_ids = state["input_ids"]
             attention_mask = state.get("attention_mask")
+            attention_bias = state.get("attention_bias")
             group_size = input_ids.shape[0]
 
             if tokens_generated > 0:
@@ -277,11 +300,16 @@ class GPT(nn.Module):
 
             tokens_generated += 1
 
-            output = self(input_ids, attention_mask=attention_mask)
+            # Run forward pass of model to get logits, then normalize to get log probs.
+            output = self(input_ids, attention_mask=attention_mask, attention_bias=attention_bias)
             log_probs = F.log_softmax(output.logits[:, -1, :], dim=-1)
+
+            # Create new state.
             state = {"input_ids": input_ids}
             if attention_mask is not None:
                 state["attention_mask"] = attention_mask
+            if attention_bias is not None:
+                state["attention_bias"] = attention_bias
 
             return log_probs, state
 
@@ -292,6 +320,8 @@ class GPT(nn.Module):
             state: dict[str, torch.Tensor] = {"input_ids": input_ids}
             if attention_mask is not None:
                 state["attention_mask"] = attention_mask
+            if attention_bias is not None:
+                state["attention_bias"] = attention_bias
             token_ids, scores = beam_search.search(initial_preds, state, step)
 
         return GPTGenerateOutput(
