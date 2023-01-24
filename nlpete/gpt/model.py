@@ -35,7 +35,7 @@ class SelfAttention(nn.Module):
     ) -> torch.FloatTensor:
         """
         :param x: A tensor of shape `(batch_size, seq_len, d_model)`.
-        :param attention_bias: A tensor of shape `(batch_size, 1, seq_len, seq_len)`
+        :param attention_bias: A tensor of shape `(batch_size, n_heads, seq_len, seq_len)`
             or an equivalently broadcastable shape. This is used to introduce causal or other biases
             and it is simply added to the attention scores before the softmax.
         """
@@ -142,16 +142,17 @@ class GPT(nn.Module):
         super().__init__()
         self.config = config
         self.transformer = nn.ModuleDict(
-            {"wte": nn.Embedding(config.vocab_size, config.d_model, device=config.device)}
+            dict(
+                wte=nn.Embedding(config.vocab_size, config.d_model, device=config.device),
+                emb_drop=nn.Dropout(config.embedding_dropout),
+                blocks=nn.ModuleList([GPTBlock(config, device=config.device) for _ in range(config.n_layers)]),
+                ln_f=nn.LayerNorm(config.d_model, device=config.device),
+            )
         )
-        self.transformer.update(
-            {"wpe": nn.Embedding(config.max_sequence_length, config.d_model, device=config.device)}
-        )
-        self.transformer.update({"emb_drop": nn.Dropout(config.embedding_dropout)})
-        self.transformer.update(
-            {"blocks": nn.ModuleList([GPTBlock(config, device=config.device) for _ in range(config.n_layers)])}
-        )
-        self.transformer.update({"ln_f": nn.LayerNorm(config.d_model, device=config.device)})
+        if not self.config.alibi:
+            self.transformer.update(
+                {"wpe": nn.Embedding(config.max_sequence_length, config.d_model, device=config.device)}
+            )
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
     @property
@@ -159,7 +160,10 @@ class GPT(nn.Module):
         if not hasattr(self, "_causal_attention_bias"):
             att_bias = torch.triu(
                 torch.ones(
-                    self.config.max_sequence_length, self.config.max_sequence_length, device=self.config.device
+                    self.config.max_sequence_length,
+                    self.config.max_sequence_length,
+                    device=self.config.device,
+                    dtype=torch.float,
                 ),
                 diagonal=1,
             )
@@ -169,6 +173,29 @@ class GPT(nn.Module):
                 att_bias.view(1, 1, self.config.max_sequence_length, self.config.max_sequence_length),
             )
         return cast(torch.FloatTensor, self._causal_attention_bias)
+
+    @property
+    def alibi_attention_bias(self) -> torch.FloatTensor:
+        if not hasattr(self, "_alibi_attention_bias"):
+            # shape: (1, 1, 1, seq_len)
+            alibi_bias = torch.arange(
+                1 - self.config.max_sequence_length, 1, dtype=torch.float, device=self.config.device
+            ).view(1, 1, 1, self.config.max_sequence_length)
+
+            # shape: (1, 1, seq_len, seq_len)
+            alibi_bias = alibi_bias - torch.arange(
+                1 - self.config.max_sequence_length, 1, dtype=torch.float, device=self.config.device
+            ).view(1, 1, self.config.max_sequence_length, 1)
+            alibi_bias.abs_().mul_(-1)
+
+            # shape: (n_heads,)
+            m = torch.arange(1, self.config.n_heads + 1, dtype=torch.float, device=self.config.device)
+            m.mul_(self.config.alibi_bias_max / self.config.n_heads)
+
+            # shape: (1, n_heads, seq_len, seq_len)
+            alibi_bias = alibi_bias * (1.0 / (2 ** m.view(1, self.config.n_heads, 1, 1)))
+            self.register_buffer("_alibi_attention_bias", alibi_bias)
+        return cast(torch.FloatTensor, self._alibi_attention_bias)
 
     def forward(
         self,
@@ -206,17 +233,19 @@ class GPT(nn.Module):
 
         # Get embeddings of input.
         # shape: (batch_size, seq_len, d_model)
-        tok_emb = self.transformer.wte(input_ids)  # type: ignore
+        x = self.transformer.wte(input_ids)  # type: ignore
 
-        # Get positional embeddings.
-        # shape: (1, seq_len)
-        pos = torch.arange(0, seq_len, dtype=torch.long, device=input_ids.device).unsqueeze(0)
-        # shape: (1, seq_len, d_model)
-        pos_emb = self.transformer.wpe(pos)  # type: ignore
+        if not self.config.alibi:
+            # Get positional embeddings.
+            # shape: (1, seq_len)
+            pos = torch.arange(0, seq_len, dtype=torch.long, device=input_ids.device).unsqueeze(0)
+            # shape: (1, seq_len, d_model)
+            pos_emb = self.transformer.wpe(pos)  # type: ignore
+            x = pos_emb + x
 
         # Add input + positional embeddings and apply dropout.
         # shape: (batch_size, seq_len, d_model)
-        x = self.transformer.emb_drop(tok_emb + pos_emb)  # type: ignore
+        x = self.transformer.emb_drop(x)  # type: ignore
 
         # Transform the attention mask into what the blocks expect.
         if attention_mask is not None:
@@ -235,6 +264,10 @@ class GPT(nn.Module):
 
         # Add in the masking bias.
         attention_bias = attention_bias[:, :, :seq_len, :seq_len] + attention_mask
+
+        if self.config.alibi:
+            # Add in ALiBi attention bias.
+            attention_bias = attention_bias + self.alibi_attention_bias[:, :, :seq_len, :seq_len]
 
         # Apply blocks one-by-one.
         for block in self.transformer.blocks:  # type: ignore
@@ -459,8 +492,8 @@ class GPT(nn.Module):
             state_dict["lm_head.weight"] = state_dict["transformer.wte.weight"]
 
         results = self.load_state_dict(state_dict, strict=False)
-        if results.missing_keys:
-            assert set(results.missing_keys) == {
-                "_causal_attention_bias"
-            }, f"missing keys in state dict: {results.missing_keys}"
+        if results.missing_keys and any(
+            key not in {"_causal_attention_bias", "_alibi_attention_bias"} for key in results.missing_keys
+        ):
+            raise RuntimeError(f"missing keys in state dict: {results.missing_keys}")
         assert len(results.unexpected_keys) == 0, f"unexpected keys in state dict: {results.unexpected_keys}"

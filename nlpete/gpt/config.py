@@ -32,6 +32,16 @@ class GPTConfig:
     The ratio of the inner MLP dimensionality to `d_model`.
     """
 
+    alibi: bool = False
+    """
+    If `True`, use ALiBi embeddings.
+    """
+
+    alibi_bias_max: float = 8.0
+    """
+    Maximum absolute value of ALiBi bias.
+    """
+
     attention_dropout: float = 0.1
     """
     The dropout probability within the attention modules.
