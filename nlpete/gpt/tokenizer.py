@@ -6,12 +6,22 @@ from tokenizers import Tokenizer as TokenizerBase
 
 from .config import GPTConfig
 
-__all__ = ["TokenizerOutput", "GPTTokenizer"]
+__all__ = ["TokenizerCallOutput", "TokenizerEncodeOutput", "TokenizerEncodeBatchOutput", "GPTTokenizer"]
 
 
-class TokenizerOutput(TypedDict):
+class TokenizerCallOutput(TypedDict):
     input_ids: torch.LongTensor
     attention_mask: torch.FloatTensor
+
+
+class TokenizerEncodeOutput(TypedDict):
+    input_ids: list[int]
+    attention_mask: list[float]
+
+
+class TokenizerEncodeBatchOutput(TypedDict):
+    input_ids: list[list[int]]
+    attention_mask: list[list[float]]
 
 
 class GPTTokenizer:
@@ -42,7 +52,9 @@ class GPTTokenizer:
 
         return cls(config, base_tokenizer, **kwargs)
 
-    def __call__(self, inputs: list[str], pad_left: bool = True, device: Optional[str] = None) -> TokenizerOutput:
+    def __call__(
+        self, inputs: list[str], pad_left: bool = True, device: Optional[str] = None
+    ) -> TokenizerCallOutput:
         """
         Encode a list of strings into `input_ids` and `attention_mask` tensors suitable
         for input to the :class:`GPT` model.
@@ -71,9 +83,25 @@ class GPTTokenizer:
         attention_mask = cast(torch.FloatTensor, torch.stack(all_attention_mask))
         return {"input_ids": input_ids, "attention_mask": attention_mask}
 
-    def decode(self, inputs: torch.LongTensor) -> list[str]:
-        """
-        Decode a batch of inputs.
-        """
-        assert len(inputs.shape) == 2, "decode expects a batched tensor"
-        return self.base_tokenizer.decode_batch([[i.item() for i in seq] for seq in inputs])
+    def encode(self, inputs: str) -> TokenizerEncodeOutput:
+        encoded = self.encode_batch([inputs])
+        return {"input_ids": encoded["input_ids"][0], "attention_mask": encoded["attention_mask"][0]}
+
+    def encode_batch(self, inputs: list[str]) -> TokenizerEncodeBatchOutput:
+        encoded = self.base_tokenizer.encode_batch(inputs)
+        input_ids = []
+        attention_mask = []
+        for e in encoded:
+            input_ids.append(e.ids)
+            attention_mask.append([1.0] * len(e.ids))
+        return {"input_ids": input_ids, "attention_mask": attention_mask}
+
+    def decode(self, token_ids: list[int]) -> str:
+        return self.decode_batch([token_ids])[0]
+
+    def decode_batch(self, token_ids: list[list[int]]) -> list[str]:
+        return self.base_tokenizer.decode_batch(token_ids)
+
+    def decode_torch(self, token_ids: torch.LongTensor) -> list[str]:
+        assert len(token_ids.shape) == 2, "decode expects a batched tensor"
+        return self.decode_batch([[cast(int, i.item()) for i in seq] for seq in token_ids])

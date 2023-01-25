@@ -25,6 +25,6 @@ generated = gpt2.generate(
     sampler=GumbelSampler(0.7),
     constraints=[RepeatedNGramBlockingConstraint(1)],
 )
-for generation in tokenizer.decode(generated.token_ids[0]):
+for generation in tokenizer.decode_torch(generated.token_ids[0]):
     print(generation)
 ```

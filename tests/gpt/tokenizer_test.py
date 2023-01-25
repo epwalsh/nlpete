@@ -21,4 +21,8 @@ def test_padding():
     assert (inputs["attention_mask"] == torch.tensor([[0.0, 0.0, 0.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0]])).all()
 
 
-torch.nn.functional.pad(torch.tensor([1.0, 1.0]), (3, 0), value=0.0)
+def encode_decode():
+    tokenizer = GPTTokenizer.from_pretrained("gpt2")
+    s = "hi there"
+    encoded = tokenizer.encode(s)
+    assert tokenizer.decode(encoded["input_ids"]) == s
