@@ -262,8 +262,11 @@ class GPT(nn.Module):
             attention_bias = attention_bias.to(dtype=torch.float)
             attention_bias.masked_fill_(attention_bias == 0.0, float("-inf"))
 
+        attention_bias = attention_bias[:, :, :seq_len, :seq_len]
+
         # Add in the masking bias.
-        attention_bias = attention_bias[:, :, :seq_len, :seq_len] + attention_mask
+        if attention_mask is not None:
+            attention_bias = attention_bias + attention_mask
 
         if self.config.alibi:
             # Add in ALiBi attention bias.
