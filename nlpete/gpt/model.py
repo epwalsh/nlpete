@@ -21,9 +21,9 @@ class SelfAttention(nn.Module):
         self.n_heads = config.n_heads
         self.d_model = config.d_model
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.d_model, 3 * config.d_model, device=config.device)
+        self.c_attn = nn.Linear(config.d_model, 3 * config.d_model, device=config.init_device)
         # output projection
-        self.c_proj = nn.Linear(config.d_model, config.d_model, device=config.device)
+        self.c_proj = nn.Linear(config.d_model, config.d_model, device=config.init_device)
         # regularization
         self.attn_dropout = nn.Dropout(config.attention_dropout)
         self.resid_dropout = nn.Dropout(config.residual_dropout)
@@ -88,11 +88,11 @@ class NewGELU(nn.Module):
 class GPTMLP(nn.Module):
     def __init__(self, config: GPTConfig):
         super().__init__()
-        self.c_fc = nn.Linear(config.d_model, config.mlp_ratio * config.d_model, device=config.device)
+        self.c_fc = nn.Linear(config.d_model, config.mlp_ratio * config.d_model, device=config.init_device)
         self.act = NewGELU()
         # NOTE: You could also use PyTorch's builtin GELU, but there are slight differences.
         #  self.act = nn.GELU()
-        self.c_proj = nn.Linear(config.mlp_ratio * config.d_model, config.d_model, device=config.device)
+        self.c_proj = nn.Linear(config.mlp_ratio * config.d_model, config.d_model, device=config.init_device)
         self.c_proj._is_residual = True  # type: ignore
         self.dropout = nn.Dropout(config.residual_dropout)
 
@@ -103,9 +103,9 @@ class GPTMLP(nn.Module):
 class GPTBlock(nn.Module):
     def __init__(self, config: GPTConfig):
         super().__init__()
-        self.ln_1 = nn.LayerNorm(config.d_model, device=config.device)
+        self.ln_1 = nn.LayerNorm(config.d_model, device=config.init_device)
         self.attn = SelfAttention(config)
-        self.ln_2 = nn.LayerNorm(config.d_model, device=config.device)
+        self.ln_2 = nn.LayerNorm(config.d_model, device=config.init_device)
         self.mlp = GPTMLP(config)
 
     def forward(
@@ -140,22 +140,24 @@ class GPTGenerateOutput(NamedTuple):
 
 
 class GPT(nn.Module):
-    def __init__(self, config: GPTConfig):
+    def __init__(self, config: GPTConfig, init_params: bool = True):
         super().__init__()
         self.config = config
         self.transformer = nn.ModuleDict(
             dict(
-                wte=nn.Embedding(config.vocab_size, config.d_model, device=config.device),
+                wte=nn.Embedding(config.vocab_size, config.d_model, device=config.init_device),
                 emb_drop=nn.Dropout(config.embedding_dropout),
                 blocks=nn.ModuleList([GPTBlock(config) for _ in range(config.n_layers)]),
-                ln_f=nn.LayerNorm(config.d_model, device=config.device),
+                ln_f=nn.LayerNorm(config.d_model, device=config.init_device),
             )
         )
         if not self.config.alibi:
             self.transformer.update(
-                {"wpe": nn.Embedding(config.max_sequence_length, config.d_model, device=config.device)}
+                {"wpe": nn.Embedding(config.max_sequence_length, config.d_model, device=config.init_device)}
             )
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+        if init_params:
+            self.apply(self.param_init_fn)
 
     @property
     def causal_attention_bias(self) -> torch.FloatTensor:
@@ -447,7 +449,7 @@ class GPT(nn.Module):
         """
         if config is None:
             config = GPTConfig.from_pretrained(pretrained_model_name)
-        model = cls(config)
+        model = cls(config, init_params=False)
         model.load_pretrained_weights(pretrained_model_name)
         return model
 
@@ -502,3 +504,28 @@ class GPT(nn.Module):
         ):
             raise RuntimeError(f"missing keys in state dict: {results.missing_keys}")
         assert len(results.unexpected_keys) == 0, f"unexpected keys in state dict: {results.unexpected_keys}"
+
+    def param_init_fn(self, module):
+        from functools import partial
+
+        init_fn = partial(torch.nn.init.normal_, mean=0.0, std=self.config.init_std)
+
+        # Linear
+        if isinstance(module, nn.Linear):
+            init_fn(module.weight)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+
+            if getattr(module, "_is_residual", False):
+                module.weight.data.normal_(
+                    mean=0.0, std=(self.config.init_std / math.sqrt(2 * self.config.n_layers))
+                )
+
+        # Embedding
+        if isinstance(module, nn.Embedding):
+            init_fn(module.weight)
+
+        # LayerNorm
+        if isinstance(module, nn.LayerNorm):
+            torch.nn.init.zeros_(module.bias)
+            torch.nn.init.ones_(module.weight)
