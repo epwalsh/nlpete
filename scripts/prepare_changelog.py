@@ -4,7 +4,7 @@ from pathlib import Path
 from nlpete.version import VERSION
 
 
-def main():
+def main() -> None:
     changelog = Path("CHANGELOG.md")
 
     with changelog.open() as f:

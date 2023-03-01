@@ -15,18 +15,18 @@ __all__ = ["SelfAttention", "NewGELU", "GPTMLP", "GPTBlock", "GPT"]
 
 
 class SelfAttention(nn.Module):
-    def __init__(self, config: GPTConfig, device: Optional[str] = None):
+    def __init__(self, config: GPTConfig):
         super().__init__()
         assert config.d_model % config.n_heads == 0
+        self.n_heads = config.n_heads
+        self.d_model = config.d_model
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.d_model, 3 * config.d_model, device=device)
+        self.c_attn = nn.Linear(config.d_model, 3 * config.d_model, device=config.device)
         # output projection
-        self.c_proj = nn.Linear(config.d_model, config.d_model, device=device)
+        self.c_proj = nn.Linear(config.d_model, config.d_model, device=config.device)
         # regularization
         self.attn_dropout = nn.Dropout(config.attention_dropout)
         self.resid_dropout = nn.Dropout(config.residual_dropout)
-        self.n_heads = config.n_heads
-        self.d_model = config.d_model
 
     def forward(
         self,
@@ -86,11 +86,13 @@ class NewGELU(nn.Module):
 
 
 class GPTMLP(nn.Module):
-    def __init__(self, config: GPTConfig, device: Optional[str] = None):
+    def __init__(self, config: GPTConfig):
         super().__init__()
-        self.c_fc = nn.Linear(config.d_model, config.mlp_ratio * config.d_model, device=device)
+        self.c_fc = nn.Linear(config.d_model, config.mlp_ratio * config.d_model, device=config.device)
         self.act = NewGELU()
-        self.c_proj = nn.Linear(config.mlp_ratio * config.d_model, config.d_model, device=device)
+        # NOTE: You could also use PyTorch's builtin GELU, but there are slight differences.
+        #  self.act = nn.GELU()
+        self.c_proj = nn.Linear(config.mlp_ratio * config.d_model, config.d_model, device=config.device)
         self.c_proj._is_residual = True  # type: ignore
         self.dropout = nn.Dropout(config.residual_dropout)
 
@@ -99,12 +101,12 @@ class GPTMLP(nn.Module):
 
 
 class GPTBlock(nn.Module):
-    def __init__(self, config: GPTConfig, device: Optional[str] = None):
+    def __init__(self, config: GPTConfig):
         super().__init__()
-        self.ln_1 = nn.LayerNorm(config.d_model, device=device)
-        self.attn = SelfAttention(config, device=device)
-        self.ln_2 = nn.LayerNorm(config.d_model, device=device)
-        self.mlp = GPTMLP(config, device=device)
+        self.ln_1 = nn.LayerNorm(config.d_model, device=config.device)
+        self.attn = SelfAttention(config)
+        self.ln_2 = nn.LayerNorm(config.d_model, device=config.device)
+        self.mlp = GPTMLP(config)
 
     def forward(
         self,
@@ -145,7 +147,7 @@ class GPT(nn.Module):
             dict(
                 wte=nn.Embedding(config.vocab_size, config.d_model, device=config.device),
                 emb_drop=nn.Dropout(config.embedding_dropout),
-                blocks=nn.ModuleList([GPTBlock(config, device=config.device) for _ in range(config.n_layers)]),
+                blocks=nn.ModuleList([GPTBlock(config) for _ in range(config.n_layers)]),
                 ln_f=nn.LayerNorm(config.d_model, device=config.device),
             )
         )
