@@ -155,7 +155,6 @@ class GPT(nn.Module):
             self.transformer.update(
                 {"wpe": nn.Embedding(config.max_sequence_length, config.d_model, device=config.init_device)}
             )
-        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False, device=config.init_device)
         if init_params:
             self.apply(self.param_init_fn)
 
@@ -287,7 +286,7 @@ class GPT(nn.Module):
 
         # Get logits.
         # shape: (batch_size, seq_len, vocab_size)
-        logits = self.lm_head(x)  # type: ignore
+        logits = F.linear(x, self.transformer.wte.weight, None)  # type: ignore
 
         return GPTOutput(logits=cast(torch.FloatTensor, logits))
 
@@ -471,7 +470,7 @@ class GPT(nn.Module):
         """
 
         def map_key(k: str) -> str:
-            if k != "lm_head.weight" and not k.startswith("transformer."):
+            if not k.startswith("transformer."):
                 k = "transformer." + k
             if k.startswith("transformer.h."):
                 k = k.replace("transformer.h.", "transformer.blocks.")
@@ -491,12 +490,9 @@ class GPT(nn.Module):
             if not (
                 k.endswith(".attn.masked_bias")
                 or k.endswith(".attn.bias")
-                or k in {"score.weight", "classifier.weight", "classifier.bias"}
+                or k in {"score.weight", "classifier.weight", "classifier.bias", "lm_head.weight"}
             )
         }
-
-        if "lm_head.weight" not in state_dict:
-            state_dict["lm_head.weight"] = state_dict["transformer.wte.weight"]
 
         results = self.load_state_dict(state_dict, strict=False)
         if results.missing_keys and any(
