@@ -5,6 +5,9 @@ from nlpete.gpt import GPT, GPTConfig, GPTTokenizer
 
 
 def test_huggingface_compatibility():
+    torch.manual_seed(32423)
+    torch.use_deterministic_algorithms(True)
+
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
 
