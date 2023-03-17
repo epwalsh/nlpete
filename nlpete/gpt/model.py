@@ -20,13 +20,16 @@ class SelfAttention(nn.Module):
         assert config.d_model % config.n_heads == 0
         self.n_heads = config.n_heads
         self.d_model = config.d_model
+        self.attn_dropout_p = config.attention_dropout
         # key, query, value projections for all heads, but in a batch
         self.c_attn = nn.Linear(config.d_model, 3 * config.d_model, device=config.init_device)
         # output projection
         self.c_proj = nn.Linear(config.d_model, config.d_model, device=config.init_device)
         # regularization
-        self.attn_dropout = nn.Dropout(config.attention_dropout)
+        self.attn_dropout = nn.Dropout(self.attn_dropout_p)
         self.resid_dropout = nn.Dropout(config.residual_dropout)
+        # check if we can use torch's native fast attn implementation (requires 2.0)
+        self.use_fast_attn = hasattr(F, "scaled_dot_product_attention")
 
     def forward(
         self,
@@ -51,22 +54,32 @@ class SelfAttention(nn.Module):
         q = q.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
         v = v.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
 
-        # Self-attention: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        # shape: (B, nh, T, hs)
+        if self.use_fast_attn:
+            att = F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=None if attention_bias is None else attention_bias.to(dtype=q.dtype),
+                dropout_p=0.0 if not self.training else self.attn_dropout_p,
+            )
+        else:
+            # Self-attention: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
 
-        # Apply bias.
-        if attention_bias is not None:
-            att = att + attention_bias[:, :, :T, :T]
+            # Apply bias.
+            if attention_bias is not None:
+                att = att + attention_bias[:, :, :T, :T]
 
-        # Apply softmax and dropout.
-        att = F.softmax(att, dim=-1)
-        att = self.attn_dropout(att)
+            # Apply softmax and dropout.
+            att = F.softmax(att, dim=-1)
+            att = self.attn_dropout(att)
 
-        # Get head outputs.
-        y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+            # Get head outputs.
+            att = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
 
         # Re-assemble all head outputs side by side.
-        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        y = att.transpose(1, 2).contiguous().view(B, T, C)
 
         # Apply output projection.
         y = self.resid_dropout(self.c_proj(y))

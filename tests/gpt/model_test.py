@@ -5,6 +5,9 @@ from nlpete.gpt import GPT, GPTConfig, GPTTokenizer
 
 
 def test_huggingface_compatibility():
+    torch.manual_seed(32423)
+    torch.use_deterministic_algorithms(True)
+
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -19,7 +22,7 @@ def test_huggingface_compatibility():
     with torch.inference_mode():
         hf_outputs = hf_gpt2(**inputs)
         outputs = gpt2(**inputs)
-    torch.testing.assert_close(outputs.logits, hf_outputs.logits)
+    torch.testing.assert_close(outputs.logits, hf_outputs.logits, rtol=2.0e-6, atol=1e-4)
 
 
 def test_alibi():
