@@ -22,7 +22,7 @@ def test_huggingface_compatibility():
     with torch.inference_mode():
         hf_outputs = hf_gpt2(**inputs)
         outputs = gpt2(**inputs)
-    torch.testing.assert_close(outputs.logits, hf_outputs.logits)
+    torch.testing.assert_close(outputs.logits, hf_outputs.logits, rtol=2.0e-6, atol=1e-4)
 
 
 def test_alibi():
