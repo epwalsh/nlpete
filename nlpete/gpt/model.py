@@ -62,6 +62,7 @@ class SelfAttention(nn.Module):
                 v,
                 attn_mask=None if attention_bias is None else attention_bias.to(dtype=q.dtype),
                 dropout_p=0.0 if not self.training else self.attn_dropout_p,
+                is_causal=attention_bias is None,  # default to causal attn
             )
         else:
             # Self-attention: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
@@ -270,23 +271,24 @@ class GPT(nn.Module):
             attention_mask = (1.0 - attention_mask) * torch.finfo(attention_mask.dtype).min
             attention_mask.masked_fill_(attention_mask == 1.0, float("-inf"))
 
-        # Default to causal attention bias.
-        attention_bias = cast(
-            torch.Tensor, attention_bias if attention_bias is not None else self.causal_attention_bias
-        )
-        if attention_bias.dtype in (torch.int8, torch.bool):
-            attention_bias = attention_bias.to(dtype=torch.float)
-            attention_bias.masked_fill_(attention_bias == 0.0, float("-inf"))
+        # Merge attention mask with attention bias.
+        if attention_bias is not None or attention_mask is not None or self.config.alibi:
+            if attention_bias is None:
+                # Default to causal attention bias.
+                attention_bias = self.causal_attention_bias
+            elif attention_bias.dtype in (torch.int8, torch.bool):
+                attention_bias = attention_bias.to(dtype=torch.float)
+                attention_bias.masked_fill_(attention_bias == 0.0, float("-inf"))
 
-        attention_bias = attention_bias[:, :, :seq_len, :seq_len]
+            attention_bias = attention_bias[:, :, :seq_len, :seq_len]
 
-        # Add in the masking bias.
-        if attention_mask is not None:
-            attention_bias = attention_bias + attention_mask
+            # Add in the masking bias.
+            if attention_mask is not None:
+                attention_bias = attention_bias + attention_mask
 
-        if self.config.alibi:
-            # Add in ALiBi attention bias.
-            attention_bias = attention_bias + self.alibi_attention_bias[:, :, :seq_len, :seq_len]
+            if self.config.alibi:
+                # Add in ALiBi attention bias.
+                attention_bias = attention_bias + self.alibi_attention_bias[:, :, :seq_len, :seq_len]
 
         # Apply blocks one-by-one.
         for block in self.transformer.blocks:  # type: ignore
