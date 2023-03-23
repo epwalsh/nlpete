@@ -9,7 +9,14 @@ import torch
 from omegaconf import OmegaConf as om
 from omegaconf.errors import OmegaConfBaseException
 
-__all__ = ["GPTConfig", "ActivationFunction", "ConfigurationError", "PaddingDirection", "TruncationDirection"]
+__all__ = [
+    "ActivationFunction",
+    "BaseConfig",
+    "ConfigurationError",
+    "GPTConfig",
+    "PaddingDirection",
+    "TruncationDirection",
+]
 
 
 C = TypeVar("C", bound="BaseConfig")
