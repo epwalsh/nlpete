@@ -118,8 +118,8 @@ class BeamSearchTest:
     def _check_results(
         self,
         batch_size: int = 5,
-        expected_top_k: Optional[np.array] = None,
-        expected_log_probs: Optional[np.array] = None,
+        expected_top_k: Optional[np.array] = None,  # type: ignore
+        expected_log_probs: Optional[np.array] = None,  # type: ignore
         beam_search: Optional[BeamSearch] = None,
         state: Optional[dict[str, torch.Tensor]] = None,
         take_step: Union[StepFunctionTypeNoTimestep, StepFunctionTypeWithTimestep] = take_step_with_timestep,

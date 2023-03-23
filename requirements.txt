@@ -1,3 +1,4 @@
 torch
 tokenizers
 cached-path
+omegaconf
