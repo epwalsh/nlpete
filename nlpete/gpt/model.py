@@ -8,10 +8,49 @@ from typing import NamedTuple, Optional, cast
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import einsum
 
-from .config import GPTConfig
+from .config import ActivationFunction, GPTConfig
 
-__all__ = ["SelfAttention", "NewGELU", "GPTMLP", "GPTBlock", "GPT"]
+__all__ = [
+    "SelfAttention",
+    "RotaryEmbedding",
+    "NewGELU",
+    "GPTMLP",
+    "GPTBlock",
+    "GPT",
+    "GPTOutput",
+    "GPTGenerateOutput",
+]
+
+
+class RotaryEmbedding(nn.Module):
+    """
+    [Rotary positional embeddings (RoPE)](https://arxiv.org/abs/2104.09864).
+    """
+
+    def __init__(self, config: GPTConfig):
+        super().__init__()
+        dim = config.d_model // config.n_heads
+        inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2, device=config.init_device).float() / dim))
+        self.register_buffer("inv_freq", inv_freq)
+
+    def forward(self, max_seq_len, *, device):
+        seq = torch.arange(max_seq_len, device=device, dtype=self.inv_freq.dtype)  # type: ignore
+        freqs = einsum("i , j -> i j", seq, self.inv_freq)
+        return torch.cat((freqs, freqs), dim=-1)
+
+
+def rotate_half(x: torch.Tensor) -> torch.Tensor:
+    B, nh, T, hs = x.size()
+    x = x.view(B, nh, T, 2, hs // 2)
+    x1, x2 = x.unbind(dim=-2)
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_pos_emb(pos: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    out = (t * pos.cos()) + (rotate_half(t) * pos.sin())
+    return out.to(t.dtype)
 
 
 class SelfAttention(nn.Module):
@@ -20,16 +59,38 @@ class SelfAttention(nn.Module):
         assert config.d_model % config.n_heads == 0
         self.n_heads = config.n_heads
         self.d_model = config.d_model
-        self.attn_dropout_p = config.attention_dropout
-        # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.d_model, 3 * config.d_model, device=config.init_device)
-        # output projection
-        self.c_proj = nn.Linear(config.d_model, config.d_model, device=config.init_device)
-        # regularization
-        self.attn_dropout = nn.Dropout(self.attn_dropout_p)
-        self.resid_dropout = nn.Dropout(config.residual_dropout)
+        self.use_rope = config.rope
+
         # check if we can use torch's native fast attn implementation (requires 2.0)
         self.use_fast_attn = hasattr(F, "scaled_dot_product_attention")
+
+        # key, query, value projections for all heads, but in a batch
+        self.c_attn = nn.Linear(config.d_model, 3 * config.d_model, device=config.init_device)
+        # for param init fn.
+        self.c_attn._fused = (0, (self.d_model, 2 * self.d_model))  # type: ignore
+
+        # output projection
+        self.c_proj = nn.Linear(config.d_model, config.d_model, device=config.init_device)
+
+        # regularization
+        self.attn_dropout_p = config.attention_dropout
+        self.attn_dropout = nn.Dropout(self.attn_dropout_p)
+        self.resid_dropout = nn.Dropout(config.residual_dropout)
+
+        if self.use_rope:
+            # Rotary embeddings.
+            self.rotary_emb = RotaryEmbedding(config)
+            self.register_buffer(
+                "pos_emb", self.rotary_emb(config.max_sequence_length, device=config.init_device), persistent=False
+            )
+
+    def get_rotary_embedding(self, seq_len, device):
+        if self.pos_emb is not None and self.pos_emb.shape[-2] >= seq_len:  # type: ignore
+            return self.pos_emb[:seq_len]  # type: ignore
+
+        pos_emb = self.rotary_emb(seq_len, device=device)
+        self.register_buffer("pos_emb", pos_emb, persistent=False)
+        return pos_emb
 
     def forward(
         self,
@@ -53,6 +114,11 @@ class SelfAttention(nn.Module):
         k = k.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
         q = q.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
         v = v.view(B, T, self.n_heads, C // self.n_heads).transpose(1, 2)
+
+        if self.use_rope:
+            # Apply rotary embeddings.
+            positions = self.get_rotary_embedding(T, x.device)
+            q, k = map(lambda t: apply_rotary_pos_emb(positions, t), (q, k))
 
         # shape: (B, nh, T, hs)
         if self.use_fast_attn:
@@ -95,7 +161,7 @@ class NewGELU(nn.Module):
     Reference: [Gaussian Error Linear Units (GELU)](https://arxiv.org/abs/1606.08415).
     """
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
 
 
@@ -103,9 +169,9 @@ class GPTMLP(nn.Module):
     def __init__(self, config: GPTConfig):
         super().__init__()
         self.c_fc = nn.Linear(config.d_model, config.mlp_ratio * config.d_model, device=config.init_device)
-        self.act = NewGELU()
-        # NOTE: You could also use PyTorch's builtin GELU, but there are slight differences.
-        #  self.act = nn.GELU()
+        self.act = (
+            NewGELU() if config.activation_function == ActivationFunction.new_gelu else nn.GELU(approximate="none")
+        )
         self.c_proj = nn.Linear(config.mlp_ratio * config.d_model, config.d_model, device=config.init_device)
         self.c_proj._is_residual = True  # type: ignore
         self.dropout = nn.Dropout(config.residual_dropout)
@@ -172,6 +238,12 @@ class GPT(nn.Module):
         if init_params:
             self.apply(self.param_init_fn)
 
+        # Initialize attention bias buffers up front since calling `register_buffer`
+        # while compiling will cause a break in the graph.
+        if self.config.alibi:
+            self.causal_attention_bias
+            self.alibi_attention_bias
+
     @property
     def causal_attention_bias(self) -> torch.FloatTensor:
         if not hasattr(self, "_causal_attention_bias"):
@@ -189,7 +261,7 @@ class GPT(nn.Module):
                 "_causal_attention_bias",
                 att_bias.view(1, 1, self.config.max_sequence_length, self.config.max_sequence_length),
             )
-        return cast(torch.FloatTensor, self._causal_attention_bias)
+        return self._causal_attention_bias  # type: ignore[return-type]
 
     @property
     def alibi_attention_bias(self) -> torch.FloatTensor:
@@ -212,7 +284,7 @@ class GPT(nn.Module):
             # shape: (1, n_heads, seq_len, seq_len)
             alibi_bias = alibi_bias * (1.0 / (2 ** m.view(1, self.config.n_heads, 1, 1)))
             self.register_buffer("_alibi_attention_bias", alibi_bias)
-        return cast(torch.FloatTensor, self._alibi_attention_bias)
+        return self._alibi_attention_bias  # type: ignore[return-type]
 
     def forward(
         self,
@@ -303,7 +375,7 @@ class GPT(nn.Module):
         # shape: (batch_size, seq_len, vocab_size)
         logits = F.linear(x, self.transformer.wte.weight, None)  # type: ignore
 
-        return GPTOutput(logits=cast(torch.FloatTensor, logits))
+        return GPTOutput(logits=logits)  # type: ignore[arg-type]
 
     def generate(
         self,
@@ -516,21 +588,51 @@ class GPT(nn.Module):
             raise RuntimeError(f"missing keys in state dict: {results.missing_keys}")
         assert len(results.unexpected_keys) == 0, f"unexpected keys in state dict: {results.unexpected_keys}"
 
+    def fsdp_wrap_fn(self, module):
+        return isinstance(module, GPTBlock)
+
+    def activation_checkpointing_fn(self, module):
+        return isinstance(module, GPTBlock)
+
     def param_init_fn(self, module):
         from functools import partial
 
         init_fn = partial(torch.nn.init.normal_, mean=0.0, std=self.config.init_std)
 
+        def fused_init_fn(module):
+            # Parameter initialization is often based on the parameters shape.
+            # If a layer is fused, initialization should be based on the shapes
+            # of the original tensor instead of the shape of the fused tensor.
+            # Layers which are fused should have the _fused attribute defined.
+            # The first element of _fused is the dimension along which the tensor is fused.
+            # This is followed by an iterable of split indices.
+            _fused = getattr(module, "_fused", None)
+            if _fused is None:
+                raise RuntimeError("Internal logic error")
+
+            dim, splits = _fused
+            splits = (0, *splits, module.weight.size(dim))
+            for s, e in zip(splits[:-1], splits[1:]):
+                slice_indices = [slice(None)] * module.weight.ndim
+                slice_indices[dim] = slice(s, e)
+                init_fn(module.weight[slice_indices])
+
         # Linear
         if isinstance(module, nn.Linear):
-            init_fn(module.weight)
+            if hasattr(module, "_fused"):
+                fused_init_fn(module)
+            else:
+                init_fn(module.weight)
+
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
 
             if getattr(module, "_is_residual", False):
-                module.weight.data.normal_(
-                    mean=0.0, std=(self.config.init_std / math.sqrt(2 * self.config.n_layers))
-                )
+                with torch.no_grad():
+                    module.weight.div_(math.sqrt(2 * self.config.n_layers))
+
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
 
         # Embedding
         if isinstance(module, nn.Embedding):
