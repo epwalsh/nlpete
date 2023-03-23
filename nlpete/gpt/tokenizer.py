@@ -95,7 +95,9 @@ class GPTTokenizer:
 
     @contextmanager
     def _truncation(
-        self, truncate_to: Optional[int], direction: Union[str, TruncationDirection] = TruncationDirection.right
+        self,
+        truncate_to: Optional[int],
+        direction: Union[str, TruncationDirection] = TruncationDirection.right,
     ) -> Generator[GPTTokenizer, None, None]:
         """
         A context manager to temporarily enable/disable truncation.
@@ -114,11 +116,12 @@ class GPTTokenizer:
             else:
                 self.base_tokenizer.enable_truncation(**truncation)
 
-    def encode(self, input: str, add_special_tokens: bool = True) -> List[int]:
+    def encode(self, input: str, add_special_tokens: bool = True, truncate_to: Optional[int] = None) -> List[int]:
         """
         Encode a string into token IDs.
         """
-        truncate_to = None if not self.enable_truncation else self.config.max_sequence_length
+        if truncate_to is None and self.enable_truncation:
+            truncate_to = self.config.max_sequence_length
         if truncate_to is not None and add_special_tokens:
             truncate_to -= self.num_special_tokens_to_add(False)
 
@@ -130,11 +133,14 @@ class GPTTokenizer:
 
         return input_ids
 
-    def encode_batch(self, inputs: List[str], add_special_tokens: bool = True) -> List[List[int]]:
+    def encode_batch(
+        self, inputs: List[str], add_special_tokens: bool = True, truncate_to: Optional[int] = None
+    ) -> List[List[int]]:
         """
         Encode a batch of strings into token IDs.
         """
-        truncate_to = None if not self.enable_truncation else self.config.max_sequence_length
+        if truncate_to is None and self.enable_truncation:
+            truncate_to = self.config.max_sequence_length
         if truncate_to is not None and add_special_tokens:
             truncate_to -= self.num_special_tokens_to_add(False)
 
@@ -150,11 +156,11 @@ class GPTTokenizer:
 
         return all_input_ids
 
-    def decode(self, token_ids: List[int]) -> str:
+    def decode(self, token_ids: List[int], skip_special_tokens: bool = True) -> str:
         """
         Decode a list of token IDs to a string.
         """
-        return self.base_tokenizer.decode(token_ids)
+        return self.base_tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
 
     def decode_batch(self, token_ids: list[list[int]]) -> list[str]:
         """
