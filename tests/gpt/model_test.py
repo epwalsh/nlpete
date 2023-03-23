@@ -90,10 +90,10 @@ def test_forward(config: GPTConfig, tokenizer: GPTTokenizer, alibi: bool, rope: 
 
     model = GPT(config).eval()
 
-    input1 = tokenizer(["My name is GPT2!"], device=config.device)
-    input2 = tokenizer(["I'm a large language model :)"], device=config.device)
+    input1 = tokenizer(["My name is GPT2!"], add_special_tokens=False, device=config.device)
+    input2 = tokenizer(["I'm a large language model :)"], add_special_tokens=False, device=config.device)
     batch_inputs = tokenizer(
-        ["My name is GPT2!", "I'm a large language model :)"], pad_left=False, device=config.device
+        ["My name is GPT2!", "I'm a large language model :)"], add_special_tokens=False, device=config.device
     )
 
     # Run forward pass.

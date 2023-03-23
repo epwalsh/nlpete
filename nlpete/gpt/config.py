@@ -9,7 +9,7 @@ import torch
 from omegaconf import OmegaConf as om
 from omegaconf.errors import OmegaConfBaseException
 
-__all__ = ["GPTConfig", "ActivationFunction", "ConfigurationError"]
+__all__ = ["GPTConfig", "ActivationFunction", "ConfigurationError", "PaddingDirection", "TruncationDirection"]
 
 
 C = TypeVar("C", bound="BaseConfig")
@@ -98,6 +98,16 @@ class BaseConfig:
 class ActivationFunction(StrEnum):
     gelu = "gelu"
     new_gelu = "new_gelu"
+
+
+class PaddingDirection(StrEnum):
+    right = "right"
+    left = "left"
+
+
+class TruncationDirection(StrEnum):
+    right = "right"
+    left = "left"
 
 
 @dataclass
@@ -191,6 +201,18 @@ class GPTConfig(BaseConfig):
     init_std: float = 0.02
     """
     Standard deviation to use when initializing model parameters.
+    """
+
+    padding_direction: PaddingDirection = PaddingDirection.left
+    """
+    The direction to pad in.
+
+    For inference it usually makes sense to pad left.
+    """
+
+    truncation_direction: TruncationDirection = TruncationDirection.right
+    """
+    The direction to truncate in.
     """
 
     @property

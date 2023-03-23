@@ -2,7 +2,7 @@ from typing import List
 
 import pytest
 
-from nlpete.gpt import GPTConfig, GPTTokenizer
+from nlpete.gpt import GPTConfig, GPTTokenizer, PaddingDirection
 
 TEST_MODEL = "gpt2"
 
@@ -40,12 +40,13 @@ def config() -> GPTConfig:
         n_heads=2,
         n_layers=3,
         max_sequence_length=512,
+        padding_direction=PaddingDirection.right,
     )
 
 
 @pytest.fixture(scope="function")
-def tokenizer() -> GPTTokenizer:
-    return GPTTokenizer.from_pretrained(TEST_MODEL)
+def tokenizer(config: GPTConfig) -> GPTTokenizer:
+    return GPTTokenizer.from_pretrained(TEST_MODEL, config=config)
 
 
 @pytest.fixture(scope="module")
