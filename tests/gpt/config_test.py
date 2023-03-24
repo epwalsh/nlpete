@@ -28,3 +28,8 @@ def test_save_and_load(tmp_path: Path):
     loaded_config = GPTConfig.load(save_path, ["n_layers=2"])
     assert loaded_config != config
     assert loaded_config.n_layers == 2
+
+
+def test_new():
+    config = GPTConfig.new(n_layers=2)
+    assert config.n_layers == 2
