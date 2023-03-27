@@ -117,6 +117,9 @@ class TruncationDirection(StrEnum):
     left = "left"
 
 
+T = TypeVar("T", bound="GPTConfig")
+
+
 @dataclass
 class GPTConfig(BaseConfig):
     """
@@ -238,7 +241,7 @@ class GPTConfig(BaseConfig):
             return self.init_device
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name: str) -> "GPTConfig":
+    def from_pretrained(cls: Type[T], pretrained_model_name: str) -> T:
         """
         Initialize a :class:`GPTConfig` from a pretrained GPT model on HuggingFace.
         """
@@ -252,7 +255,7 @@ class GPTConfig(BaseConfig):
         return cls.from_huggingface_config(config)
 
     @classmethod
-    def from_huggingface_config(cls, config) -> "GPTConfig":
+    def from_huggingface_config(cls: Type[T], config) -> T:
         """
         Initialize a :class:`GPTConfig` from a HuggingFace transformers
         :class:`~transformers.GPT2Config`.
