@@ -225,7 +225,9 @@ class GPT(nn.Module):
         self.config = config
         self.transformer = nn.ModuleDict(
             dict(
-                wte=nn.Embedding(config.vocab_size, config.d_model, device=config.init_device),
+                wte=nn.Embedding(
+                    config.embedding_size or config.vocab_size, config.d_model, device=config.init_device
+                ),
                 emb_drop=nn.Dropout(config.embedding_dropout),
                 blocks=nn.ModuleList([GPTBlock(config) for _ in range(config.n_layers)]),
                 ln_f=nn.LayerNorm(config.d_model, device=config.init_device),
