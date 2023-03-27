@@ -3,6 +3,7 @@ Adapted from https://github.com/karpathy/minGPT/blob/master/mingpt/model.py
 """
 
 import math
+import warnings
 from typing import NamedTuple, Optional, cast
 
 import torch
@@ -10,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import einsum
 
-from .config import ActivationFunction, GPTConfig
+from .config import ActivationFunction, ConfigurationError, GPTConfig
 
 __all__ = [
     "SelfAttention",
@@ -222,6 +223,16 @@ class GPTGenerateOutput(NamedTuple):
 class GPT(nn.Module):
     def __init__(self, config: GPTConfig, init_params: bool = True):
         super().__init__()
+
+        # Validate.
+        if config.embedding_size is not None:
+            if config.embedding_size < config.vocab_size:
+                raise ConfigurationError("embedding size should be at least as big as vocab size")
+            if config.embedding_size % 128 != 0:
+                warnings.warn(
+                    "Embedding size is not a multiple of 128! This could hurt throughput performance.", UserWarning
+                )
+
         self.config = config
         self.transformer = nn.ModuleDict(
             dict(
