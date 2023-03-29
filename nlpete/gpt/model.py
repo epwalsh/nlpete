@@ -45,7 +45,7 @@ class LayerNorm(torch.nn.LayerNorm):
             device=config.init_device,
             dtype=dtype,
         )
-        self.low_precision = config.low_precision_layernorm
+        self.low_precision = config.low_precision_layer_norm
 
     def forward(self, x):
         if self.low_precision:

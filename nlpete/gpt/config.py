@@ -183,9 +183,9 @@ class GPTConfig(BaseConfig):
     The dropout probability for embeddings.
     """
 
-    low_precision_layernorm: bool = False
+    low_precision_layer_norm: bool = False
     """
-    Use low-precision layernorm. This can speed things up substantially when
+    Use low-precision layer norm. This can speed things up substantially when
     not compiling, but we've found that it actually slows throughput for compiled
     models.
     """
