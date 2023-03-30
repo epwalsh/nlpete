@@ -162,11 +162,11 @@ class GPTTokenizer:
         """
         return self.base_tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
 
-    def decode_batch(self, token_ids: list[list[int]]) -> list[str]:
+    def decode_batch(self, token_ids: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
         """
         Decode a batch of token IDs to a list of strings.
         """
-        return self.base_tokenizer.decode_batch(token_ids)
+        return self.base_tokenizer.decode_batch(token_ids, skip_special_tokens=skip_special_tokens)
 
     def decode_torch(self, token_ids: torch.LongTensor) -> list[str]:
         """
