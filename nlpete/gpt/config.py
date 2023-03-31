@@ -240,6 +240,11 @@ class GPTConfig(BaseConfig):
     The direction to truncate in.
     """
 
+    precision: Optional[str] = None
+    """
+    Precision datatype when using AMP. E.g. 'bf16'.
+    """
+
     @property
     def device(self) -> Optional[str]:
         if self.init_device == "meta" or self.init_device is None:
