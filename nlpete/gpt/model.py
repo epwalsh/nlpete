@@ -414,7 +414,7 @@ class GPT(nn.Module):
         # Transform the attention mask into what the blocks expect.
         if attention_mask is not None:
             # shape: (batch_size, 1, 1, seq_len)
-            attention_mask = attention_mask.to(dtype=torch.float).view(batch_size, -1)[:, None, None, :]
+            attention_mask = attention_mask.to(dtype=x.dtype).view(batch_size, -1)[:, None, None, :]
             attention_mask = (1.0 - attention_mask) * torch.finfo(attention_mask.dtype).min
             attention_mask.masked_fill_(attention_mask == 1.0, float("-inf"))
 
