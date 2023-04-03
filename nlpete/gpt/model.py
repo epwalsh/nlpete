@@ -2,8 +2,11 @@
 Adapted from https://github.com/karpathy/minGPT/blob/master/mingpt/model.py
 """
 
+from __future__ import annotations
+
 import math
 import warnings
+from abc import abstractmethod
 from typing import NamedTuple, Optional, cast
 
 import torch
@@ -11,13 +14,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import einsum
 
-from .config import ActivationFunction, ConfigurationError, GPTConfig
+from .config import ActivationType, ConfigurationError, GPTConfig
 
 __all__ = [
     "LayerNorm",
     "SelfAttention",
     "RotaryEmbedding",
+    "Activation",
     "NewGELU",
+    "GELU",
+    "ReLU",
+    "SwiGLU",
     "GPTMLP",
     "GPTBlock",
     "GPT",
@@ -26,7 +33,7 @@ __all__ = [
 ]
 
 
-class LayerNorm(torch.nn.LayerNorm):
+class LayerNorm(nn.LayerNorm):
     """
     Layer norm which can optionally run in low precision.
     """
@@ -202,7 +209,31 @@ class SelfAttention(nn.Module):
         return y
 
 
-class NewGELU(nn.Module):
+class Activation(nn.Module):
+    @abstractmethod
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def output_multiplier(self) -> float:
+        raise NotImplementedError
+
+    @classmethod
+    def build(cls, config: GPTConfig) -> Activation:
+        if config.activation_function == ActivationType.gelu:
+            return cast(Activation, GELU(approximate="none"))
+        elif config.activation_function == ActivationType.new_gelu:
+            return NewGELU()
+        elif config.activation_function == ActivationType.relu:
+            return cast(Activation, ReLU(inplace=False))
+        elif config.activation_function == ActivationType.swiglu:
+            return SwiGLU(config)
+        else:
+            raise NotImplementedError(f"not sure how to handle activation type '{config.activation_function}'")
+
+
+class NewGELU(Activation):
     """
     Implementation of the GELU activation function currently in Google BERT repo (identical to OpenAI GPT).
 
@@ -212,15 +243,43 @@ class NewGELU(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
 
+    @property
+    def output_multiplier(self) -> float:
+        return 1.0
+
+
+class GELU(nn.GELU):
+    @property
+    def output_multiplier(self) -> float:
+        return 1.0
+
+
+class ReLU(nn.ReLU):
+    @property
+    def output_multiplier(self) -> float:
+        return 1.0
+
+
+class SwiGLU(Activation):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x, gate = x.chunk(2, dim=-1)
+        return F.silu(gate) * x
+
+    @property
+    def output_multiplier(self) -> float:
+        return 0.5
+
 
 class GPTMLP(nn.Module):
     def __init__(self, config: GPTConfig):
         super().__init__()
         self.c_fc = nn.Linear(config.d_model, config.mlp_ratio * config.d_model, device=config.init_device)
-        self.act = (
-            NewGELU() if config.activation_function == ActivationFunction.new_gelu else nn.GELU(approximate="none")
+        self.act = Activation.build(config)
+        self.c_proj = nn.Linear(
+            int(self.act.output_multiplier * config.mlp_ratio * config.d_model),
+            config.d_model,
+            device=config.init_device,
         )
-        self.c_proj = nn.Linear(config.mlp_ratio * config.d_model, config.d_model, device=config.init_device)
         self.c_proj._is_residual = True  # type: ignore
         self.dropout = nn.Dropout(config.residual_dropout)
 

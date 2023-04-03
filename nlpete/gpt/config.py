@@ -10,7 +10,7 @@ from omegaconf import OmegaConf as om
 from omegaconf.errors import OmegaConfBaseException
 
 __all__ = [
-    "ActivationFunction",
+    "ActivationType",
     "BaseConfig",
     "ConfigurationError",
     "GPTConfig",
@@ -102,9 +102,11 @@ class BaseConfig:
         return out
 
 
-class ActivationFunction(StrEnum):
+class ActivationType(StrEnum):
     gelu = "gelu"
     new_gelu = "new_gelu"
+    relu = "relu"
+    swiglu = "swiglu"
 
 
 class PaddingDirection(StrEnum):
@@ -163,7 +165,7 @@ class GPTConfig(BaseConfig):
     Use rotary positional embeddings (RoPE). Mutually exclusive with ``alibi``.
     """
 
-    activation_function: ActivationFunction = ActivationFunction.new_gelu
+    activation_function: ActivationType = ActivationType.new_gelu
     """
     The activation function to use.
     """
