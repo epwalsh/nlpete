@@ -579,16 +579,13 @@ class GPT(nn.Module):
 
             return log_probs, state
 
-        with torch.inference_mode():
-            batch_size = input_ids.shape[0]
-            # This is arbitrary, we won't use this.
-            initial_preds = input_ids.new_zeros((batch_size,))
-            state: dict[str, torch.Tensor] = {"input_ids": input_ids}
-            if attention_mask is not None:
-                state["attention_mask"] = attention_mask
-            if attention_bias is not None:
-                state["attention_bias"] = attention_bias
-            token_ids, scores = beam_search.search(initial_preds, state, step)
+        initial_preds = input_ids.new_zeros((batch_size,))  # This is arbitrary, we won't use this.
+        state: dict[str, torch.Tensor] = {"input_ids": input_ids}
+        if attention_mask is not None:
+            state["attention_mask"] = attention_mask
+        if attention_bias is not None:
+            state["attention_bias"] = attention_bias
+        token_ids, scores = beam_search.search(initial_preds, state, step)
 
         return GPTGenerateOutput(
             token_ids=cast(torch.LongTensor, token_ids), scores=cast(torch.FloatTensor, scores)

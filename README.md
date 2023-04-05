@@ -10,7 +10,7 @@ Python >= 3.9 is required.
 from nlpete.gpt import *
 
 # Initialize a GPT model and tokenizer from pretrained weights on HuggingFace:
-gpt2 = GPT.from_pretrained("gpt2")
+gpt2 = GPT.from_pretrained("gpt2").eval()
 tokenizer = GPTTokenizer.from_pretrained("gpt2")
 
 # Tokenize inputs for passing into the model:
