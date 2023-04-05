@@ -514,7 +514,7 @@ class GPT(nn.Module):
     def generate(
         self,
         input_ids: torch.LongTensor,
-        attention_mask: Optional[torch.Tensor],
+        attention_mask: Optional[torch.Tensor] = None,
         attention_bias: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> GPTGenerateOutput:
