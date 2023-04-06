@@ -228,7 +228,7 @@ class Activation(nn.Module):
         elif config.activation_function == ActivationType.relu:
             return cast(Activation, ReLU(inplace=False))
         elif config.activation_function == ActivationType.swiglu:
-            return SwiGLU(config)
+            return SwiGLU()
         else:
             raise NotImplementedError(f"not sure how to handle activation type '{config.activation_function}'")
 
