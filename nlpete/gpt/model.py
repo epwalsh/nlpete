@@ -449,10 +449,6 @@ class GPT(nn.Module):
             The default is causal, which corresponds to a lower-diagonal byte matrix of ones.
         """
         batch_size, seq_len = input_ids.size()
-        assert seq_len <= self.config.max_sequence_length, (
-            f"Cannot forward input with seq_len={seq_len}, "
-            f"this model only supports seq_len<={self.config.max_sequence_length}"
-        )
 
         # Get embeddings of input.
         # shape: (batch_size, seq_len, d_model)
