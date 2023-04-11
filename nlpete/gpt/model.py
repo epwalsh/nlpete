@@ -512,6 +512,7 @@ class GPT(nn.Module):
         input_ids: torch.LongTensor,
         attention_mask: Optional[torch.Tensor] = None,
         attention_bias: Optional[torch.Tensor] = None,
+        temperature: float = 1.0,
         **kwargs,
     ) -> GPTGenerateOutput:
         """
@@ -523,6 +524,7 @@ class GPT(nn.Module):
         :param attention_bias: A tensor of shape
             `(batch_size, 1, seq_len + tokens_to_generate, seq_len + tokens_to_generate)`,
             the same as for the forward method except only one shape is excepted here.
+        :param temperature: Temperature for the softmax.
         :param kwargs: Key-word arguments that will be passed to :class:`BeamSearch`.
         """
         from ..beam_search import BeamSearch
@@ -564,7 +566,7 @@ class GPT(nn.Module):
 
             # Run forward pass of model to get logits, then normalize to get log probs.
             output = self(input_ids, attention_mask=attention_mask, attention_bias=attention_bias)
-            log_probs = F.log_softmax(output.logits[:, -1, :], dim=-1)
+            log_probs = F.log_softmax(output.logits[:, -1, :] / temperature, dim=-1)
 
             # Create new state.
             state = {"input_ids": input_ids}
