@@ -13,6 +13,7 @@ from inspect import signature
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, cast
 
 import torch
+import torch.nn.functional as F
 
 __all__ = [
     "Sampler",
@@ -23,6 +24,7 @@ __all__ = [
     "GumbelSampler",
     "FinalSequenceScorer",
     "SequenceLogProbabilityScorer",
+    "BeamNormalizedScorer",
     "LengthNormalizedSequenceLogProbabilityScorer",
     "Constraint",
     "RepeatedNGramBlockingConstraint",
@@ -82,8 +84,6 @@ class Sampler:
     picks the `k` examples with highest log probability.
     """
 
-    default_implementation = "deterministic"
-
     def init_state(
         self, start_class_log_probabilities: torch.Tensor, batch_size: int, num_classes: int
     ) -> StateType:
@@ -141,7 +141,7 @@ class MultinomialSampler(Sampler):
         self, log_probs: torch.Tensor, per_node_beam_size: int, state: StateType
     ) -> Tuple[torch.Tensor, torch.Tensor, StateType]:
         if self.temperature != 1.0:
-            _probabilities = torch.nn.functional.softmax(log_probs / self.temperature, dim=-1)
+            _probabilities = F.softmax(log_probs / self.temperature, dim=-1)
         else:
             _probabilities = log_probs.exp()
 
@@ -191,7 +191,7 @@ class TopKSampler(Sampler):
 
         # Re-normalize the subset.
         # shape: (batch_size, k)
-        normalized_top_k_probs = torch.nn.functional.softmax(top_k_log_probs, dim=-1)
+        normalized_top_k_probs = F.softmax(top_k_log_probs, dim=-1)
 
         # Sample from the re-normalized subset.
         # NOTE: These indices are not indices into `log_probs`, they are indices into `top_k_log_probs`.
@@ -248,7 +248,7 @@ class TopPSampler(Sampler):
 
         # First apply temperature coefficient:
         if self.temperature != 1.0:
-            _log_probs = torch.nn.functional.log_softmax(log_probs / self.temperature, dim=-1)
+            _log_probs = F.log_softmax(log_probs / self.temperature, dim=-1)
         else:
             _log_probs = log_probs
 
@@ -275,7 +275,7 @@ class TopPSampler(Sampler):
 
         # Now re-normalized the included log probs.
         # shape: (batch_size, num_classes)
-        filtered_probabilities = torch.nn.functional.softmax(log_probs_descending, dim=-1)
+        filtered_probabilities = F.softmax(log_probs_descending, dim=-1)
 
         # Sample from the re-normalized subset.
         # NOTE: These indices are not indices into `log_probs`, they are indices into `log_probs_descending`.
@@ -327,7 +327,7 @@ class GumbelSampler(Sampler):
         # First apply temperature coefficient:
         # shape: (batch_size * beam_size, num_classes)
         if self.temperature != 1.0:
-            _log_probs = torch.nn.functional.log_softmax(log_probs / self.temperature, dim=-1)
+            _log_probs = F.log_softmax(log_probs / self.temperature, dim=-1)
         else:
             _log_probs = log_probs
 
@@ -423,7 +423,7 @@ class GumbelSampler(Sampler):
         v = T - G_phi + torch.log1p(-torch.exp(G_phi - Z.unsqueeze(-1)))
 
         # Shape: (batch_size, num_classes)
-        return T - torch.nn.functional.relu(v) - torch.log1p(torch.exp(-v.abs()))
+        return T - F.relu(v) - torch.log1p(torch.exp(-v.abs()))
 
 
 class FinalSequenceScorer:
@@ -435,8 +435,6 @@ class FinalSequenceScorer:
     The default implementation scores the sequences using the sum of the log probabilities of
     the sequence, which is passed as input.
     """
-
-    default_implementation = "sequence-log-prob"
 
     @abstractmethod
     def score(self, predictions: torch.Tensor, log_probabilities: torch.Tensor, end_index: int) -> torch.Tensor:
@@ -464,6 +462,18 @@ class SequenceLogProbabilityScorer(FinalSequenceScorer):
         # The sum of the sequence log probabilities is the input parameter, so just
         # return it.
         return log_probabilities
+
+
+class BeamNormalizedScorer(FinalSequenceScorer):
+    """
+    Renormalizes final sequence scores relative to other sequences in the final beams.
+    """
+
+    def score(self, predictions: torch.Tensor, log_probabilities: torch.Tensor, end_index: int) -> torch.Tensor:
+        del predictions, end_index
+        # The sum of the sequence log probabilities is the input parameter, so just
+        # return it.
+        return F.log_softmax(log_probabilities, dim=-1)
 
 
 class LengthNormalizedSequenceLogProbabilityScorer(FinalSequenceScorer):
