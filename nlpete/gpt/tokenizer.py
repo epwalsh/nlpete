@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from threading import Lock
 from typing import Generator, List, Optional, TypedDict, Union, cast
 
 import torch
@@ -23,6 +24,11 @@ class GPTTokenizer:
     from `transformers`. This is essentially just a lightweight wrapper around
     :class:`tokenizers.Tokenizer`.
     """
+
+    # The base tokenizer is not thread safe, so we use a lock to ensure
+    # we're only using it in a single thread at once.
+    # See https://github.com/huggingface/tokenizers/issues/537
+    MUTEX = Lock()
 
     def __init__(self, config: GPTConfig, base_tokenizer: TokenizerBase, enable_truncation: bool = True):
         self.config = config
@@ -102,6 +108,7 @@ class GPTTokenizer:
         """
         A context manager to temporarily enable/disable truncation.
         """
+        self.MUTEX.acquire()
         truncation = self.base_tokenizer.truncation
 
         try:
@@ -111,10 +118,13 @@ class GPTTokenizer:
                 self.base_tokenizer.no_truncation()
             yield self
         finally:
-            if truncation is None:
-                self.base_tokenizer.no_truncation()
-            else:
-                self.base_tokenizer.enable_truncation(**truncation)
+            try:
+                if truncation is None:
+                    self.base_tokenizer.no_truncation()
+                else:
+                    self.base_tokenizer.enable_truncation(**truncation)
+            finally:
+                self.MUTEX.release()
 
     def encode(self, input: str, add_special_tokens: bool = True, truncate_to: Optional[int] = None) -> List[int]:
         """
